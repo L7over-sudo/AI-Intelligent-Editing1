@@ -248,7 +248,7 @@ function subtitleAppearance(
     color: style.primaryColor ?? fallbackColor,
     fontFamily:
       style.fontFamily ??
-      '"HarmonyOS Sans SC Light", "DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+      '"DouyinSansBold", "HarmonyOS Sans SC Light", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
     fontWeight: style.fontWeight ?? 800,
     fontStyle: style.italic ? "italic" : "normal",
     backgroundColor: style.backgroundColor ?? undefined,
@@ -400,7 +400,7 @@ const KnowledgeBoardChrome = ({
   };
   const leftSideTextStyle: CSSProperties = {
     ...sideTextStyle,
-    left: "5.75%",
+    left: "3.125%",
     color: "#CCCCCC",
     gap: Math.round(sideTextFontSize * 0.65),
   };
@@ -499,7 +499,10 @@ const KnowledgeBoardChrome = ({
           <span
             style={{
               maxWidth: layout.subtitle.maxWidth,
-              ...subtitleAppearance(subtitleStyle, "#111111"),
+              ...subtitleAppearance(
+                { ...subtitleStyle, shadow: false },
+                "#FFFFFF",
+              ),
             }}
           >
             {activeCue.text}

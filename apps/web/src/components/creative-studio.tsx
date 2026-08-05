@@ -57,7 +57,7 @@ export function CreativeStudio({
   const [videoTemplate, setVideoTemplate] =
     useState<VideoTemplate>("KNOWLEDGE_BOARD");
   const [templateHeader, setTemplateHeader] = useState(
-    "— 思维提升 | 表达沟通 | 职场成长 | 自我突破 —",
+    "思维提升 | 表达沟通 | 职场成长 | 自我突破",
   );
   const [outputMode, setOutputMode] = useState<OutputMode>("NARRATED");
   const [voiceStyle, setVoiceStyle] = useState("voxcpm2");

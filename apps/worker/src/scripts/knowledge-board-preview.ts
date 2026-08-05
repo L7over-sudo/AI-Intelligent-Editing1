@@ -51,7 +51,7 @@ try {
     ],
     backgroundMusicVolume: 0.18,
     videoTemplate: "KNOWLEDGE_BOARD",
-    headerText: "— 思维提升 | 表达沟通 | 职场成长 | 自我突破 —",
+    headerText: "思维提升 | 表达沟通 | 职场成长 | 自我突破",
     subtitleStyle: {
       fontSize: 60,
       position: "BOTTOM",

@@ -144,7 +144,7 @@ export function createRenderProcessor(
       const knowledgeBoard = subtitleStyle.videoTemplate === "KNOWLEDGE_BOARD";
       const headerText =
         subtitleStyle.headerText ||
-        "— 思维提升 | 表达沟通 | 职场成长 | 自我突破 —";
+        "思维提升 | 表达沟通 | 职场成长 | 自我突破";
       let timelineMs = 0;
       const firstGeneratedSceneId = project.scenes.find(
         (item) => !item.isTextOpening,
@@ -320,13 +320,16 @@ export function createRenderProcessor(
                 resolvedSubtitleStyle?.fontSize ?? subtitleStyle.fontSize,
               primaryColor:
                 resolvedSubtitleStyle?.primaryColor ??
-                (knowledgeBoard ? "#111111" : "#FFFFFF"),
+                (knowledgeBoard ? "#FFFFFF" : "#FFFFFF"),
               accentColor: project.accentColor,
               outline: resolvedSubtitleStyle
                 ? resolvedSubtitleStyle.outlineWidth > 0
                 : knowledgeBoard
-                  ? false
+                  ? true
                   : subtitleStyle.outline,
+              ...(knowledgeBoard
+                ? { outlineColor: "#000000", outlineWidth: 3 }
+                : {}),
               shadow:
                 resolvedSubtitleStyle?.shadow ??
                 (knowledgeBoard ? false : subtitleStyle.shadow),
@@ -452,6 +455,15 @@ export function createRenderProcessor(
             (resolvedSubtitleStyle as { rightVerticalText?: string } | undefined)
               ?.rightVerticalText ??
             subtitleStyle.rightVerticalText,
+          ...(knowledgeBoard
+            ? {
+                primaryColor: "#FFFFFF",
+                outlineColor: "#000000",
+                outlineWidth: 3,
+                outline: true,
+                shadow: false,
+              }
+            : {}),
         },
         watermark: input.watermark,
       };
