@@ -105,12 +105,25 @@ export function createScriptProcessor(
       const firstGeneratedIndex = storyboardSource.scenes.findIndex(
         (scene) => !scene.isTextOpening,
       );
-      if (firstGeneratedIndex >= 0) {
+      const openingIndex = storyboardSource.scenes.findIndex(
+        (scene) => scene.isTextOpening,
+      );
+      const waterDropIndex =
+        openingIndex >= 0 ? openingIndex : firstGeneratedIndex;
+      if (firstGeneratedIndex >= 0 || waterDropIndex >= 0) {
         const scenes = [...storyboardSource.scenes];
-        scenes[firstGeneratedIndex] = {
-          ...scenes[firstGeneratedIndex]!,
-          animation: { type: "RISE", direction: "UP", intensity: 1 },
-        };
+        if (firstGeneratedIndex >= 0) {
+          scenes[firstGeneratedIndex] = {
+            ...scenes[firstGeneratedIndex]!,
+            animation: { type: "RISE", direction: "UP", intensity: 1 },
+          };
+        }
+        if (waterDropIndex >= 0) {
+          scenes[waterDropIndex] = {
+            ...scenes[waterDropIndex]!,
+            soundEffects: [{ tag: "water", offsetRatio: 0, gainDb: -4 }],
+          };
+        }
         storyboardSource = { ...storyboardSource, scenes };
       }
       const storyboard = storyboardSource;
