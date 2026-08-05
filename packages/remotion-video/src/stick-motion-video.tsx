@@ -333,30 +333,7 @@ const KnowledgeBoardBackdrop = () => (
       background:
         "radial-gradient(circle at 50% 38%, #ffffff 0%, #fdfdfc 68%, #f7f7f5 100%)",
     }}
-  >
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        top: "30%",
-        height: "53%",
-        width: "6%",
-        background:
-          "linear-gradient(to right, rgba(30,30,30,0.14), rgba(30,30,30,0.05), transparent)",
-      }}
-    />
-    <div
-      style={{
-        position: "absolute",
-        right: 0,
-        top: "30%",
-        height: "53%",
-        width: "6%",
-        background:
-          "linear-gradient(to left, rgba(30,30,30,0.14), rgba(30,30,30,0.05), transparent)",
-      }}
-    />
-  </AbsoluteFill>
+  />
 );
 
 const KnowledgeBoardChrome = ({
@@ -390,6 +367,36 @@ const KnowledgeBoardChrome = ({
     subtitleStyle.fontSize,
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
+  const sideTextFontSize = Math.round(height * 0.064);
+  const leftSideLines = ["@", "杰", "研", "社", "进", "化", "论"];
+  const rightSideLines = [
+    "个",
+    "人",
+    "观",
+    "点",
+    "",
+    "无",
+    "不",
+    "良",
+    "引",
+    "导",
+  ];
+  const sideTextStyle: CSSProperties = {
+    position: "absolute",
+    top: "27%",
+    height: "56%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "rgba(30,30,30,0.22)",
+    fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+    fontWeight: 700,
+    fontSize: sideTextFontSize,
+    lineHeight: 1.05,
+    letterSpacing: "0.02em",
+    userSelect: "none",
+  };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
       {headerText ? (
@@ -424,6 +431,20 @@ const KnowledgeBoardChrome = ({
           backgroundColor: "#111",
         }}
       />
+      <div style={{ ...sideTextStyle, left: "2.4%" }}>
+        {leftSideLines.map((character, index) => (
+          <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
+            {character}
+          </span>
+        ))}
+      </div>
+      <div style={{ ...sideTextStyle, right: "2.4%" }}>
+        {rightSideLines.map((character, index) => (
+          <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
+            {character}
+          </span>
+        ))}
+      </div>
       {activeCue && !scene.isTextOpening ? (
         <div
           style={{
