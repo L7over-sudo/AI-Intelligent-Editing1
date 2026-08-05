@@ -377,9 +377,6 @@ const KnowledgeBoardChrome = ({
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
   const sideTextFontSize = Math.round(height * 0.048);
-  const leftSideLines = verticalTextLines(
-    subtitleStyle.leftVerticalText ?? "@杰研社进化论",
-  );
   const rightSideLines = verticalTextLines(
     subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
   );
@@ -397,12 +394,6 @@ const KnowledgeBoardChrome = ({
     lineHeight: 1.1,
     letterSpacing: "0.02em",
     userSelect: "none",
-  };
-  const leftSideTextStyle: CSSProperties = {
-    ...sideTextStyle,
-    left: "5.75%",
-    color: "#000000",
-    gap: Math.round(sideTextFontSize * 0.65),
   };
   const rightSideTextStyle: CSSProperties = {
     ...sideTextStyle,
@@ -464,13 +455,6 @@ const KnowledgeBoardChrome = ({
           backgroundColor: "rgba(0,0,0,0.75)",
         }}
       />
-      <div style={leftSideTextStyle}>
-        {leftSideLines.map((character, index) => (
-          <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
-            {character}
-          </span>
-        ))}
-      </div>
       <div style={rightSideTextStyle}>
         {rightSideLines.map((character, index) => (
           <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
