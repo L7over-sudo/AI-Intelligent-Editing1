@@ -255,6 +255,198 @@ function subtitleAppearance(
   };
 }
 
+const SceneAudioLayers = ({
+  scene,
+  fps,
+}: {
+  scene: Scene;
+  fps: number;
+}) => (
+  <>
+    {scene.voiceFile ? <Audio src={staticFile(scene.voiceFile)} /> : null}
+    {scene.soundEffects.map((effect, index) => (
+      <Sequence
+        key={`${effect.file}-${effect.offsetMs}-${index}`}
+        from={Math.round((effect.offsetMs / 1_000) * fps)}
+      >
+        <Audio
+          src={staticFile(effect.file)}
+          volume={gainToVolume(effect.gainDb)}
+        />
+      </Sequence>
+    ))}
+  </>
+);
+
+const KnowledgeBoardMedia = ({
+  scene,
+  fps,
+}: {
+  scene: Scene;
+  fps: number;
+}) => {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const durationInFrames = calculateSceneDurationInFrames(
+    scene.durationMs,
+    fps,
+  );
+  const layout = getKnowledgeBoardLayout(width, height);
+  return (
+    <AbsoluteFill style={{ overflow: "hidden" }}>
+      <div
+        style={{
+          position: "absolute",
+          left: layout.image.left,
+          top: layout.image.top,
+          width: layout.image.width,
+          height: layout.image.height,
+          display: "grid",
+          placeItems: "center",
+          overflow: "hidden",
+        }}
+      >
+        <Img
+          src={staticFile(scene.imageFile)}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            ...sceneTransform(scene, frame, durationInFrames, fps),
+          }}
+        />
+      </div>
+      {scene.isTextOpening ? (
+        <RedTextOpening
+          text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
+          fps={fps}
+        />
+      ) : null}
+      <SceneAudioLayers scene={scene} fps={fps} />
+    </AbsoluteFill>
+  );
+};
+
+const KnowledgeBoardBackdrop = () => (
+  <AbsoluteFill
+    style={{
+      background:
+        "radial-gradient(circle at 50% 38%, #ffffff 0%, #fdfdfc 68%, #f7f7f5 100%)",
+    }}
+  />
+);
+
+const KnowledgeBoardChrome = ({
+  scene,
+  subtitleStyle,
+  watermark,
+  headerText,
+}: {
+  scene: Scene;
+  subtitleStyle: RemotionRenderInput["subtitleStyle"];
+  watermark: string;
+  headerText: string;
+}) => {
+  const frame = useCurrentFrame();
+  const { width, height, fps } = useVideoConfig();
+  const currentMs = (frame / fps) * 1_000;
+  const activeCue = scene.subtitleCues.find(
+    (cue) => currentMs >= cue.startMs && currentMs < cue.endMs,
+  );
+  const layout = getKnowledgeBoardLayout(width, height);
+  const headerFontSize = Math.max(
+    18,
+    Math.min(
+      layout.header.fontSize,
+      Math.floor(
+        (width * 0.84) / (Math.max(1, Array.from(headerText).length) * 0.92),
+      ),
+    ),
+  );
+  const subtitleFontSize = Math.min(
+    subtitleStyle.fontSize,
+    Math.round(height * (height > width ? 0.038 : 0.055)),
+  );
+  return (
+    <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
+      {headerText ? (
+        <div
+          style={{
+            position: "absolute",
+            top: layout.header.top,
+            left: "5%",
+            right: "5%",
+            height: layout.header.height,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#090909",
+            fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+            fontSize: headerFontSize,
+            fontWeight: 800,
+            letterSpacing: "0.2em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {headerText}
+        </div>
+      ) : null}
+      <div
+        style={{
+          position: "absolute",
+          top: layout.dividerY,
+          left: 0,
+          right: 0,
+          height: Math.max(3, Math.round(height * 0.0025)),
+          backgroundColor: "#111",
+        }}
+      />
+      {activeCue && !scene.isTextOpening ? (
+        <div
+          style={{
+            position: "absolute",
+            top: layout.subtitle.top,
+            left: 0,
+            right: 0,
+            height: layout.subtitle.height,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: `0 ${Math.round(width * 0.06)}px`,
+            textAlign: "center",
+            fontSize: subtitleFontSize,
+            lineHeight: 1.3,
+            letterSpacing: "0.01em",
+          }}
+        >
+          <span
+            style={{
+              maxWidth: layout.subtitle.maxWidth,
+              ...subtitleAppearance(subtitleStyle, "#111111"),
+            }}
+          >
+            {activeCue.text}
+          </span>
+        </div>
+      ) : null}
+      {watermark ? (
+        <div
+          style={{
+            position: "absolute",
+            right: 24,
+            top: 18,
+            color: "rgba(0,0,0,.45)",
+            fontFamily: "sans-serif",
+            fontSize: 20,
+          }}
+        >
+          {watermark}
+        </div>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
 const SceneLayer = ({
   scene,
   subtitleStyle,
@@ -523,6 +715,9 @@ function transitionNode(scene: Scene, fps: number, key: string): ReactNode {
 export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
   const input = remotionRenderInputSchema.parse(rawProps);
   const timeline: ReactNode[] = [];
+  const chromeTimeline: ReactNode[] = [];
+  let chromeStartFrame = 0;
+  const knowledgeBoard = input.videoTemplate === "KNOWLEDGE_BOARD";
 
   input.scenes.forEach((scene, index) => {
     const outgoingTransition =
@@ -537,15 +732,40 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
           outgoingTransition
         }
       >
-        <SceneLayer
-          scene={scene}
-          subtitleStyle={input.subtitleStyle}
-          watermark={input.watermark}
-          videoTemplate={input.videoTemplate}
-          headerText={input.headerText}
-        />
+        {knowledgeBoard ? (
+          <KnowledgeBoardMedia scene={scene} fps={input.fps} />
+        ) : (
+          <SceneLayer
+            scene={scene}
+            subtitleStyle={input.subtitleStyle}
+            watermark={input.watermark}
+            videoTemplate={input.videoTemplate}
+            headerText={input.headerText}
+          />
+        )}
       </TransitionSeries.Sequence>,
     );
+    if (knowledgeBoard) {
+      const sceneDurationInFrames = calculateSceneDurationInFrames(
+        scene.durationMs,
+        input.fps,
+      );
+      chromeTimeline.push(
+        <Sequence
+          key={`chrome-${index}`}
+          from={chromeStartFrame}
+          durationInFrames={sceneDurationInFrames}
+        >
+          <KnowledgeBoardChrome
+            scene={scene}
+            subtitleStyle={input.subtitleStyle}
+            watermark={input.watermark}
+            headerText={input.headerText}
+          />
+        </Sequence>,
+      );
+      chromeStartFrame += sceneDurationInFrames;
+    }
     if (index < input.scenes.length - 1) {
       const transition = transitionNode(
         scene,
@@ -558,6 +778,7 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {knowledgeBoard ? <KnowledgeBoardBackdrop /> : null}
       {input.backgroundMusicFile ? (
         <Audio
           src={staticFile(input.backgroundMusicFile)}
@@ -566,6 +787,7 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
         />
       ) : null}
       <TransitionSeries>{timeline}</TransitionSeries>
+      {knowledgeBoard ? <>{chromeTimeline}</> : null}
     </AbsoluteFill>
   );
 };
