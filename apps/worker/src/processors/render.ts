@@ -362,12 +362,26 @@ export function createRenderProcessor(
           await objectStore.get(backgroundMusic.objectKey),
         );
       }
-      await writeFile(
-        path.join(workspace, "DouyinSansBold.otf"),
-        await readFile(
-          path.resolve(process.cwd(), "../../assets/fonts/DouyinSansBold.otf"),
+      await Promise.all([
+        writeFile(
+          path.join(workspace, "DouyinSansBold.otf"),
+          await readFile(
+            path.resolve(
+              process.cwd(),
+              "../../assets/fonts/DouyinSansBold.otf",
+            ),
+          ),
         ),
-      );
+        writeFile(
+          path.join(workspace, "HarmonyOS_Sans_SC_Light.ttf"),
+          await readFile(
+            path.resolve(
+              process.cwd(),
+              "../../assets/fonts/HarmonyOS_Sans_SC_Light.ttf",
+            ),
+          ),
+        ),
+      ]);
       const outputPath = path.join(workspace, "output.mp4");
       const command = buildFfmpegRenderCommand({
         scenes: renderScenes,

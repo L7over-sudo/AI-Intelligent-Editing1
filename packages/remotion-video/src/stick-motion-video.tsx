@@ -248,7 +248,7 @@ function subtitleAppearance(
     color: style.primaryColor ?? fallbackColor,
     fontFamily:
       style.fontFamily ??
-      '"DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+      '"HarmonyOS Sans SC Light", "DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
     fontWeight: style.fontWeight ?? 800,
     fontStyle: style.italic ? "italic" : "normal",
     backgroundColor: style.backgroundColor ?? undefined,
@@ -841,7 +841,9 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
       <style>{`@font-face{font-family:"DouyinSansBold";src:url("${staticFile(
         "DouyinSansBold.otf",
-      )}") format("opentype")}`}</style>
+      )}") format("opentype")}@font-face{font-family:"HarmonyOS Sans SC Light";src:url("${staticFile(
+        "HarmonyOS_Sans_SC_Light.ttf",
+      )}") format("truetype")}`}</style>
       {knowledgeBoard ? <KnowledgeBoardBackdrop /> : null}
       {input.backgroundMusicFile ? (
         <Audio

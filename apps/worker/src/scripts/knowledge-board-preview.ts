@@ -24,6 +24,10 @@ try {
     path.resolve(process.cwd(), "../../assets/fonts/DouyinSansBold.otf"),
     path.join(publicDir, "DouyinSansBold.otf"),
   );
+  await copyFile(
+    path.resolve(process.cwd(), "../../assets/fonts/HarmonyOS_Sans_SC_Light.ttf"),
+    path.join(publicDir, "HarmonyOS_Sans_SC_Light.ttf"),
+  );
 
   const plan: RemotionRenderInput = {
     width: 1920,
