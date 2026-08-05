@@ -31,6 +31,8 @@ describe("createProjectSchema duration policy", () => {
         templateId: "BUILTIN",
         videoTemplate: "FULL_BLEED",
         headerText: "",
+        leftVerticalText: "",
+        rightVerticalText: "",
         transitionsEnabled: true,
       },
       includeNarration: true,
@@ -69,6 +71,22 @@ describe("createProjectSchema duration policy", () => {
         },
       }).subtitleStyle.transitionsEnabled,
     ).toBe(false);
+  });
+
+  it("supports custom vertical side text", () => {
+    expect(
+      createProjectSchema.parse({
+        ...projectInput,
+        subtitleStyle: {
+          ...projectInput.subtitleStyle,
+          leftVerticalText: "@杰研社进化论",
+          rightVerticalText: "个人观点\n\n无不良引导",
+        },
+      }).subtitleStyle,
+    ).toMatchObject({
+      leftVerticalText: "@杰研社进化论",
+      rightVerticalText: "个人观点\n\n无不良引导",
+    });
   });
 
   it("ignores removed visual-effect settings from existing projects", () => {

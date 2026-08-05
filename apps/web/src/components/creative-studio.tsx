@@ -82,6 +82,10 @@ export function CreativeStudio({
   const [characterReferenceFile, setCharacterReferenceFile] = useState<File>();
   const [transitionsEnabled, setTransitionsEnabled] = useState(true);
   const [useTextOpeningTemplate, setUseTextOpeningTemplate] = useState(false);
+  const [leftVerticalText, setLeftVerticalText] = useState("@杰研社进化论");
+  const [rightVerticalText, setRightVerticalText] = useState(
+    "个人观点\n\n无不良引导",
+  );
   const [music, setMusic] = useState("NONE");
   const [keepOriginal, setKeepOriginal] = useState(true);
   const [imageApiReady, setImageApiReady] = useState(false);
@@ -213,6 +217,8 @@ export function CreativeStudio({
             videoTemplate,
             headerText:
               videoTemplate === "KNOWLEDGE_BOARD" ? templateHeader.trim() : "",
+            leftVerticalText: leftVerticalText.trim(),
+            rightVerticalText: rightVerticalText.trim(),
             transitionsEnabled,
           },
         }),
@@ -479,6 +485,10 @@ export function CreativeStudio({
                 setTemplateHeader={setTemplateHeader}
                 useTextOpeningTemplate={useTextOpeningTemplate}
                 setUseTextOpeningTemplate={setUseTextOpeningTemplate}
+                leftVerticalText={leftVerticalText}
+                setLeftVerticalText={setLeftVerticalText}
+                rightVerticalText={rightVerticalText}
+                setRightVerticalText={setRightVerticalText}
               />
             )}
             {activeTab === "transition" && (
@@ -875,6 +885,10 @@ function TemplatePanel({
   setTemplateHeader,
   useTextOpeningTemplate,
   setUseTextOpeningTemplate,
+  leftVerticalText,
+  setLeftVerticalText,
+  rightVerticalText,
+  setRightVerticalText,
 }: {
   videoTemplate: VideoTemplate;
   setVideoTemplate: (value: VideoTemplate) => void;
@@ -882,6 +896,10 @@ function TemplatePanel({
   setTemplateHeader: (value: string) => void;
   useTextOpeningTemplate: boolean;
   setUseTextOpeningTemplate: (value: boolean) => void;
+  leftVerticalText: string;
+  setLeftVerticalText: (value: string) => void;
+  rightVerticalText: string;
+  setRightVerticalText: (value: string) => void;
 }) {
   return (
     <div className="grid gap-6">
@@ -942,6 +960,37 @@ function TemplatePanel({
           </label>
         )}
       </section>
+
+      {videoTemplate === "KNOWLEDGE_BOARD" && (
+        <section>
+          <h3 className="text-sm font-black">两侧竖排文字</h3>
+          <p className="mt-1 text-xs leading-5 text-black/40">
+            每行一个字，空行可以留间隔；留空就不显示。
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="grid gap-2 text-sm font-bold">
+              左侧
+              <textarea
+                value={leftVerticalText}
+                onChange={(event) => setLeftVerticalText(event.target.value)}
+                rows={8}
+                placeholder="@杰研社进化论"
+                className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              右侧
+              <textarea
+                value={rightVerticalText}
+                onChange={(event) => setRightVerticalText(event.target.value)}
+                rows={8}
+                placeholder={"个人观点\n\n无不良引导"}
+                className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+              />
+            </label>
+          </div>
+        </section>
+      )}
 
       <section>
         <h3 className="text-sm font-black">开场模板</h3>

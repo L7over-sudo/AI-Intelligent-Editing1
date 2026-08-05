@@ -424,6 +424,14 @@ export function createRenderProcessor(
                 shadowColor: resolvedSubtitleStyle.shadowColor,
               }
             : {}),
+          leftVerticalText:
+            (resolvedSubtitleStyle as { leftVerticalText?: string } | undefined)
+              ?.leftVerticalText ??
+            subtitleStyle.leftVerticalText,
+          rightVerticalText:
+            (resolvedSubtitleStyle as { rightVerticalText?: string } | undefined)
+              ?.rightVerticalText ??
+            subtitleStyle.rightVerticalText,
         },
         watermark: input.watermark,
       };

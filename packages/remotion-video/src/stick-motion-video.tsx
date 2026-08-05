@@ -37,6 +37,16 @@ function gainToVolume(gainDb: number): number {
   return Math.min(1, Math.max(0, 10 ** (gainDb / 20)));
 }
 
+function verticalTextLines(value: string | undefined): string[] {
+  const text = value?.trim() ?? "";
+  if (!text) return [];
+  return text.split(/\r?\n/u).flatMap((line, index) => {
+    const characters = Array.from(line.trim());
+    if (index > 0) return ["", ...characters];
+    return characters;
+  });
+}
+
 const RED_OPENING_COLOR = "#BE2426";
 
 function RedTextOpening({
@@ -368,19 +378,12 @@ const KnowledgeBoardChrome = ({
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
   const sideTextFontSize = Math.round(height * 0.064);
-  const leftSideLines = ["@", "杰", "研", "社", "进", "化", "论"];
-  const rightSideLines = [
-    "个",
-    "人",
-    "观",
-    "点",
-    "",
-    "无",
-    "不",
-    "良",
-    "引",
-    "导",
-  ];
+  const leftSideLines = verticalTextLines(
+    subtitleStyle.leftVerticalText ?? "@杰研社进化论",
+  );
+  const rightSideLines = verticalTextLines(
+    subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
+  );
   const sideTextStyle: CSSProperties = {
     position: "absolute",
     top: "27%",

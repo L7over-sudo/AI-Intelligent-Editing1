@@ -84,6 +84,8 @@ export const remotionRenderInputSchema = z
           .string()
           .regex(/^#[0-9A-Fa-f]{6}$/u)
           .optional(),
+        leftVerticalText: z.string().trim().max(120).optional(),
+        rightVerticalText: z.string().trim().max(160).optional(),
       })
       .strict(),
     watermark: z.string().trim().max(80).default(""),
