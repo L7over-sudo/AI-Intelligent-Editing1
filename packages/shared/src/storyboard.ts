@@ -32,7 +32,15 @@ export const templateElementSchema = z
 
 export const animationSchema = z
   .object({
-    type: z.enum(["NONE", "FADE", "SLIDE", "ZOOM", "PAN", "BOUNCE"]),
+    type: z.enum([
+      "NONE",
+      "FADE",
+      "SLIDE",
+      "ZOOM",
+      "PAN",
+      "BOUNCE",
+      "RISE",
+    ]),
     direction: z.enum(["NONE", "LEFT", "RIGHT", "UP", "DOWN", "IN", "OUT"]),
     intensity: z.number().min(0).max(1),
   })

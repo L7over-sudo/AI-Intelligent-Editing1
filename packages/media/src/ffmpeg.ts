@@ -1,5 +1,12 @@
 export type VideoTransition = "CUT" | "FADE" | "DISSOLVE" | "PUSH" | "ZOOM";
-export type VideoAnimation = "NONE" | "FADE" | "SLIDE" | "ZOOM" | "PAN" | "BOUNCE";
+export type VideoAnimation =
+  | "NONE"
+  | "FADE"
+  | "SLIDE"
+  | "ZOOM"
+  | "PAN"
+  | "BOUNCE"
+  | "RISE";
 
 export interface RenderSceneInput {
   imagePath: string;
@@ -80,6 +87,9 @@ function animationFilter(
   }
   if (type === "PAN" || type === "SLIDE") {
     return `${base},zoompan=z='1.04':x='(iw-iw/zoom)*on/300':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`;
+  }
+  if (type === "RISE") {
+    return `${base},zoompan=z='1.06':x='iw/2-(iw/zoom/2)':y='max(0,ih-(ih/zoom/2)-on*10)':d=1:s=${width}x${height}:fps=${fps}`;
   }
   return `${base},fps=${fps}`;
 }
@@ -243,4 +253,3 @@ export function buildFfmpegRenderCommand(
 
   return { args, durationSeconds };
 }
-

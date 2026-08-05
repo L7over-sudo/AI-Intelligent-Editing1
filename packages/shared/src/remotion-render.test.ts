@@ -44,6 +44,19 @@ describe("remotion render input", () => {
     expect(parsed.scenes[0]?.isTextOpening).toBe(true);
   });
 
+  it("accepts a rise animation for the first generated scene", () => {
+    const parsed = remotionRenderInputSchema.parse({
+      ...validInput,
+      scenes: [
+        {
+          ...validInput.scenes[0],
+          animation: { type: "RISE", direction: "UP", intensity: 1 },
+        },
+      ],
+    });
+    expect(parsed.scenes[0]?.animation.type).toBe("RISE");
+  });
+
   it("rejects traversal paths and odd render dimensions", () => {
     expect(() =>
       remotionRenderInputSchema.parse({

@@ -94,6 +94,23 @@ describe("buildFfmpegRenderCommand", () => {
 
     expect(command.args.join(" ")).not.toContain("drawtext=");
   });
+  it("supports the rise animation", () => {
+    const command = buildFfmpegRenderCommand({
+      scenes: [
+        {
+          imagePath: "one.png",
+          duration: 1,
+          animation: "RISE",
+          transition: { type: "CUT", duration: 0 },
+        },
+      ],
+      outputPath: "out.mp4",
+      width: 1080,
+      height: 1920,
+    });
+
+    expect(command.args.join(" ")).toContain("zoompan");
+  });
   it("rejects odd dimensions", () => {
     expect(() =>
       buildFfmpegRenderCommand({
@@ -112,4 +129,3 @@ describe("buildFfmpegRenderCommand", () => {
     ).toThrow(/EVEN/);
   });
 });
-

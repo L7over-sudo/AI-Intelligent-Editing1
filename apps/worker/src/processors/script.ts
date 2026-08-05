@@ -102,6 +102,17 @@ export function createScriptProcessor(
           ...request,
         });
       }
+      const firstGeneratedIndex = storyboardSource.scenes.findIndex(
+        (scene) => !scene.isTextOpening,
+      );
+      if (firstGeneratedIndex >= 0) {
+        const scenes = [...storyboardSource.scenes];
+        scenes[firstGeneratedIndex] = {
+          ...scenes[firstGeneratedIndex]!,
+          animation: { type: "RISE", direction: "UP", intensity: 1 },
+        };
+        storyboardSource = { ...storyboardSource, scenes };
+      }
       const storyboard = storyboardSource;
       await localJob.updateProgress(80);
       const duration = Math.ceil(getStoryboardDuration(storyboard));

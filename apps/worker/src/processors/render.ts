@@ -146,13 +146,27 @@ export function createRenderProcessor(
         subtitleStyle.headerText ||
         "— 思维提升 | 表达沟通 | 职场成长 | 自我突破 —";
       let timelineMs = 0;
+      const firstGeneratedSceneId = project.scenes.find(
+        (item) => !item.isTextOpening,
+      )?.id;
 
       for (const [index, scene] of project.scenes.entries()) {
-        const animation = animationSchema.parse(scene.animation);
-        const transition = applyTransitionPreference(
-          transitionSchema.parse(scene.transition),
-          subtitleStyle.transitionsEnabled,
-        );
+        const isFirstGenerated = scene.id === firstGeneratedSceneId;
+        const animation = scene.isTextOpening
+          ? { type: "NONE" as const, direction: "NONE" as const, intensity: 0 }
+          : isFirstGenerated
+            ? {
+                type: "RISE" as const,
+                direction: "UP" as const,
+                intensity: 1,
+              }
+            : animationSchema.parse(scene.animation);
+        const transition = scene.isTextOpening
+          ? { type: "CUT" as const, duration: 0 }
+          : applyTransitionPreference(
+              transitionSchema.parse(scene.transition),
+              subtitleStyle.transitionsEnabled,
+            );
         const imagePath = path.join(workspace, `scene-${index}.png`);
         let sourceImage: Uint8Array;
 

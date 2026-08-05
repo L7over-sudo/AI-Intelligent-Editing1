@@ -195,6 +195,28 @@ function sceneTransform(
       transform: `scale(${0.94 + value * 0.06}) translateY(${(1 - value) * 3}%)`,
     };
   }
+  if (scene.animation.type === "RISE") {
+    const rise = interpolate(
+      frame,
+      [0, Math.min(14, durationInFrames - 1)],
+      [0, 1],
+      clamp,
+    );
+    const flash = interpolate(
+      frame,
+      [0, 3, 8, Math.min(14, durationInFrames - 1)],
+      [0, 0.85, 0.2, 0],
+      clamp,
+    );
+    const distance = (1 - rise) * 10 * Math.max(0.35, intensity);
+    return {
+      opacity: enter,
+      filter: `brightness(${1 + flash * 0.9})`,
+      transform: `translate3d(0, ${distance}%, 0) scale(${
+        1.02 + (1 - rise) * 0.04
+      })`,
+    };
+  }
   return { transform: "scale(1.015)" };
 }
 
