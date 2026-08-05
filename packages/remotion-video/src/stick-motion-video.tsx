@@ -377,7 +377,7 @@ const KnowledgeBoardChrome = ({
     subtitleStyle.fontSize,
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
-  const sideTextFontSize = Math.round(height * 0.064);
+  const sideTextFontSize = Math.round(height * 0.048);
   const leftSideLines = verticalTextLines(
     subtitleStyle.leftVerticalText ?? "@杰研社进化论",
   );
@@ -392,16 +392,20 @@ const KnowledgeBoardChrome = ({
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
+    gap: Math.round(sideTextFontSize * 0.42),
     color: "rgba(30,30,30,0.22)",
-    fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+    fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
     fontWeight: 700,
     fontSize: sideTextFontSize,
-    lineHeight: 1.05,
+    lineHeight: 1.1,
     letterSpacing: "0.02em",
     userSelect: "none",
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
+      <style>{`@font-face{font-family:"DouyinSansBold";src:url("${staticFile(
+        "DouyinSansBold.otf",
+      )}") format("opentype")}`}</style>
       {headerText ? (
         <div
           style={{

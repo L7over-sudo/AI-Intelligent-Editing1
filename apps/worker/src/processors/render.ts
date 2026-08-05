@@ -362,6 +362,12 @@ export function createRenderProcessor(
           await objectStore.get(backgroundMusic.objectKey),
         );
       }
+      await writeFile(
+        path.join(workspace, "DouyinSansBold.otf"),
+        await readFile(
+          path.resolve(process.cwd(), "../../assets/fonts/DouyinSansBold.otf"),
+        ),
+      );
       const outputPath = path.join(workspace, "output.mp4");
       const command = buildFfmpegRenderCommand({
         scenes: renderScenes,
