@@ -248,7 +248,7 @@ function subtitleAppearance(
     color: style.primaryColor ?? fallbackColor,
     fontFamily:
       style.fontFamily ??
-      '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+      '"DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
     fontWeight: style.fontWeight ?? 800,
     fontStyle: style.italic ? "italic" : "normal",
     backgroundColor: style.backgroundColor ?? undefined,
@@ -413,9 +413,6 @@ const KnowledgeBoardChrome = ({
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
-      <style>{`@font-face{font-family:"DouyinSansBold";src:url("${staticFile(
-        "DouyinSansBold.otf",
-      )}") format("opentype")}`}</style>
       {headerText ? (
         <div
           style={{
@@ -859,6 +856,9 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      <style>{`@font-face{font-family:"DouyinSansBold";src:url("${staticFile(
+        "DouyinSansBold.otf",
+      )}") format("opentype")}`}</style>
       {knowledgeBoard ? <KnowledgeBoardBackdrop /> : null}
       {input.backgroundMusicFile ? (
         <Audio
