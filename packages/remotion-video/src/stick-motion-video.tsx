@@ -386,7 +386,7 @@ const KnowledgeBoardChrome = ({
   );
   const sideTextStyle: CSSProperties = {
     position: "absolute",
-    top: "27%",
+    top: "22%",
     height: "56%",
     display: "flex",
     flexDirection: "column",
@@ -402,13 +402,19 @@ const KnowledgeBoardChrome = ({
   const leftSideTextStyle: CSSProperties = {
     ...sideTextStyle,
     left: "5.75%",
-    color: "rgba(0,0,0,0.85)",
+    color: "#000000",
     gap: Math.round(sideTextFontSize * 0.65),
+  };
+  const leftSideEchoStyle: CSSProperties = {
+    ...sideTextStyle,
+    left: "3.125%",
+    color: "#CCCCCC",
+    gap: Math.round(sideTextFontSize * 0.25),
   };
   const rightSideTextStyle: CSSProperties = {
     ...sideTextStyle,
-    right: "3.1%",
-    color: "rgba(0,0,0,0.8)",
+    right: "3.125%",
+    color: "#CCCCCC",
     gap: Math.round(sideTextFontSize * 0.25),
   };
   return (
@@ -417,16 +423,16 @@ const KnowledgeBoardChrome = ({
         <div
           style={{
             position: "absolute",
-            top: layout.header.top,
+            top: "6.5%",
             left: "5%",
             right: "5%",
-            height: layout.header.height,
+            height: "5%",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             color: "#090909",
             fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
-            fontSize: headerFontSize,
+            fontSize: Math.min(headerFontSize, Math.round(height * 0.038)),
             fontWeight: 800,
             letterSpacing: "0.2em",
             whiteSpace: "nowrap",
@@ -448,7 +454,7 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "7%",
+          top: "8.3%",
           left: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
@@ -458,7 +464,7 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "7%",
+          top: "8.3%",
           right: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
@@ -468,6 +474,13 @@ const KnowledgeBoardChrome = ({
       <div style={leftSideTextStyle}>
         {leftSideLines.map((character, index) => (
           <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
+            {character}
+          </span>
+        ))}
+      </div>
+      <div style={leftSideEchoStyle}>
+        {leftSideLines.map((character, index) => (
+          <span key={`echo-${character}-${index}`} style={{ height: sideTextFontSize }}>
             {character}
           </span>
         ))}
