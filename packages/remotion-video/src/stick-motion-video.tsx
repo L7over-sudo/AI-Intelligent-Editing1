@@ -392,14 +392,24 @@ const KnowledgeBoardChrome = ({
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: Math.round(sideTextFontSize * 0.42),
-    color: "rgba(30,30,30,0.22)",
     fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
     fontWeight: 700,
     fontSize: sideTextFontSize,
     lineHeight: 1.1,
     letterSpacing: "0.02em",
     userSelect: "none",
+  };
+  const leftSideTextStyle: CSSProperties = {
+    ...sideTextStyle,
+    left: "5.75%",
+    color: "rgba(0,0,0,0.85)",
+    gap: Math.round(sideTextFontSize * 0.65),
+  };
+  const rightSideTextStyle: CSSProperties = {
+    ...sideTextStyle,
+    right: "3.1%",
+    color: "rgba(0,0,0,0.8)",
+    gap: Math.round(sideTextFontSize * 0.25),
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
@@ -418,7 +428,7 @@ const KnowledgeBoardChrome = ({
             alignItems: "center",
             justifyContent: "center",
             color: "#090909",
-            fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+            fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
             fontSize: headerFontSize,
             fontWeight: 800,
             letterSpacing: "0.2em",
@@ -438,14 +448,34 @@ const KnowledgeBoardChrome = ({
           backgroundColor: "#111",
         }}
       />
-      <div style={{ ...sideTextStyle, left: "2.4%" }}>
+      <div
+        style={{
+          position: "absolute",
+          top: "7%",
+          left: "21.3%",
+          width: Math.round(width * 0.022),
+          height: Math.max(3, Math.round(height * 0.004)),
+          backgroundColor: "rgba(0,0,0,0.75)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          top: "7%",
+          right: "21.3%",
+          width: Math.round(width * 0.022),
+          height: Math.max(3, Math.round(height * 0.004)),
+          backgroundColor: "rgba(0,0,0,0.75)",
+        }}
+      />
+      <div style={leftSideTextStyle}>
         {leftSideLines.map((character, index) => (
           <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
             {character}
           </span>
         ))}
       </div>
-      <div style={{ ...sideTextStyle, right: "2.4%" }}>
+      <div style={rightSideTextStyle}>
         {rightSideLines.map((character, index) => (
           <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
             {character}
