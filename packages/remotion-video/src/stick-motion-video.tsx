@@ -405,12 +405,6 @@ const KnowledgeBoardChrome = ({
     color: "#000000",
     gap: Math.round(sideTextFontSize * 0.65),
   };
-  const leftSideEchoStyle: CSSProperties = {
-    ...sideTextStyle,
-    left: "3.125%",
-    color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.25),
-  };
   const rightSideTextStyle: CSSProperties = {
     ...sideTextStyle,
     right: "3.125%",
@@ -474,13 +468,6 @@ const KnowledgeBoardChrome = ({
       <div style={leftSideTextStyle}>
         {leftSideLines.map((character, index) => (
           <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
-            {character}
-          </span>
-        ))}
-      </div>
-      <div style={leftSideEchoStyle}>
-        {leftSideLines.map((character, index) => (
-          <span key={`echo-${character}-${index}`} style={{ height: sideTextFontSize }}>
             {character}
           </span>
         ))}
