@@ -599,6 +599,20 @@ function ProjectPanel({
         .length
     : 0;
   const latestSceneImageJob = project?.jobs.find((job) => job.type === "SCENE");
+  const voiceJobs = project?.jobs.filter((job) => job.type === "VOICE") ?? [];
+  const voiceJobTotal = voiceJobs.length;
+  const voiceJobDone = voiceJobs.filter(
+    (job) => job.status === "SUCCEEDED",
+  ).length;
+  const voiceJobFailed = voiceJobs.filter(
+    (job) => job.status === "FAILED",
+  ).length;
+  const activeVoiceJobs = voiceJobs.filter((job) =>
+    ["QUEUED", "RUNNING", "RETRYING"].includes(job.status),
+  );
+  const voiceProgress = voiceJobTotal
+    ? Math.round((voiceJobDone / voiceJobTotal) * 100)
+    : 0;
   const jianyingJobs =
     project?.jobs.filter((job) => job.type === "JIANYING_DRAFT") ?? [];
   const activeJianyingJob = jianyingJobs.find((job) =>
@@ -987,6 +1001,32 @@ function ProjectPanel({
                   )}
               </div>
             )}
+          {voiceJobTotal > 0 && voiceJobDone < voiceJobTotal && (
+            <div className="mt-3 rounded-xl bg-[#f3f6f7] p-3">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span>
+                  配音任务：{voiceJobDone}/{voiceJobTotal} 段
+                </span>
+                <span>{voiceProgress}%</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+                <div
+                  className="h-full rounded-full bg-[#7c5cff] transition-all"
+                  style={{ width: `${voiceProgress}%` }}
+                />
+              </div>
+              {activeVoiceJobs.length > 0 && (
+                <p className="mt-2 text-xs text-black/45">
+                  正在生成配音…
+                </p>
+              )}
+              {voiceJobFailed > 0 && (
+                <p className="mt-2 text-xs text-red-700">
+                  {voiceJobFailed} 段配音失败，可重新生成
+                </p>
+              )}
+            </div>
+          )}
           <div className="mt-4 grid gap-4">
             {project.scenes.map((scene, index) => (
               <article
