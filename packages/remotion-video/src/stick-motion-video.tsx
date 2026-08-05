@@ -340,8 +340,7 @@ const KnowledgeBoardMedia = ({
 const KnowledgeBoardBackdrop = () => (
   <AbsoluteFill
     style={{
-      background:
-        "radial-gradient(circle at 50% 38%, #ffffff 0%, #fdfdfc 68%, #f7f7f5 100%)",
+      backgroundColor: "#FFFFFF",
     }}
   />
 );
