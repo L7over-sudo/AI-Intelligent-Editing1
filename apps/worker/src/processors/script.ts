@@ -1,0 +1,159 @@
+import type { LocalJob } from "@stickmotion/queue";
+
+import { getPrisma } from "@stickmotion/db";
+import {
+  getStoryboardDuration,
+  scriptGenerationInputSchema,
+  type ScriptGenerationInput,
+} from "@stickmotion/shared";
+
+import { LocalStoryboardProvider } from "../services/local-storyboard-provider";
+import { applyAutomaticSoundEffects } from "../services/automatic-sound-effects";
+import { synchronizeProjectSoundEffects } from "../services/sound-effect-library";
+import type { StoryboardProvider } from "../services/storyboard-provider";
+
+function cleanError(error: unknown): string {
+  return error instanceof Error
+    ? error.message.slice(0, 2_000)
+    : "Unknown storyboard generation error";
+}
+
+export function createScriptProcessor(
+  provider: StoryboardProvider = new LocalStoryboardProvider(),
+) {
+  return async function processScriptJob(
+    localJob: LocalJob<ScriptGenerationInput>,
+  ): Promise<{ sceneCount: number }> {
+    const input = scriptGenerationInputSchema.parse(localJob.data);
+    const prisma = getPrisma();
+
+    await prisma.generationJob.update({
+      where: { id: input.jobId },
+      data: {
+        status: "RUNNING",
+        startedAt: new Date(),
+        progress: 5,
+        events: {
+          create: { status: "RUNNING", progress: 5, code: "SCRIPT_STARTED" },
+        },
+      },
+    });
+
+    try {
+      const project = await prisma.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+      });
+      if (project.revision !== input.projectRevision) {
+        throw new Error("PROJECT_REVISION_STALE");
+      }
+
+      await localJob.updateProgress(15);
+      const storyboard = applyAutomaticSoundEffects(
+        await provider.generate({
+          sourceText: project.sourceText,
+          sourceKind: project.sourceKind as "TOPIC" | "FULL_TEXT",
+          aspectRatio: project.aspectRatio,
+          language: project.language,
+          accentColor: project.accentColor,
+          imagePrompt: project.imagePrompt,
+        }),
+      );
+      await localJob.updateProgress(80);
+      const duration = Math.ceil(getStoryboardDuration(storyboard));
+
+      await prisma.$transaction(async (tx) => {
+        const current = await tx.project.findUniqueOrThrow({
+          where: { id: project.id },
+          select: { revision: true },
+        });
+        if (current.revision !== input.projectRevision) {
+          throw new Error("PROJECT_REVISION_STALE");
+        }
+
+        await tx.scene.deleteMany({ where: { projectId: project.id } });
+        await tx.scene.createMany({
+          data: storyboard.scenes.map((scene, index) => ({
+            projectId: project.id,
+            order: index,
+            narration: scene.narration,
+            subtitle: scene.subtitle,
+            estimatedDuration: scene.estimatedDuration,
+            visualPrompt: scene.visualPrompt,
+            templateElements: scene.templateElements,
+            animation: scene.animation,
+            transition: scene.transition,
+            soundEffects: scene.soundEffects,
+          })),
+        });
+        await tx.project.update({
+          where: { id: project.id },
+          data: {
+            title: storyboard.title,
+            targetDuration: duration,
+            status: "READY",
+          },
+        });
+      });
+
+      await localJob.updateProgress(90);
+      const soundEffectCount = await synchronizeProjectSoundEffects(
+        project.id,
+        input.projectRevision,
+      );
+      await prisma.generationJob.update({
+        where: { id: input.jobId },
+        data: {
+          status: "SUCCEEDED",
+          progress: 100,
+          errorCode: null,
+          errorMessage: null,
+          finishedAt: new Date(),
+          output: {
+            title: storyboard.title,
+            summary: storyboard.summary,
+            sceneCount: storyboard.scenes.length,
+            duration,
+            soundEffectCount,
+          },
+          events: {
+            create: {
+              status: "SUCCEEDED",
+              progress: 100,
+              code: "SCRIPT_SUCCEEDED",
+              metadata: { soundEffectCount },
+            },
+          },
+        },
+      });
+
+      await localJob.updateProgress(100);
+      return { sceneCount: storyboard.scenes.length };
+    } catch (error) {
+      const message = cleanError(error);
+      await prisma.$transaction([
+        prisma.generationJob.update({
+          where: { id: input.jobId },
+          data: {
+            status: "FAILED",
+            errorCode: "SCRIPT_GENERATION_FAILED",
+            errorMessage: message,
+            finishedAt: new Date(),
+            events: {
+              create: {
+                status: "FAILED",
+                progress: 0,
+                code: "SCRIPT_GENERATION_FAILED",
+                message,
+              },
+            },
+          },
+        }),
+        prisma.project.update({
+          where: { id: input.projectId },
+          data: { status: "FAILED" },
+        }),
+      ]);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  };
+}

@@ -1,0 +1,18 @@
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+.env
+.env.local
+*.log
+*.tsbuildinfo
+pnpm-debug.log*
+packages/db/src/generated/
+tmp/
+storage/
+.DS_Store
+# Local scratch / generated media
+work/
+scripts/__pycache__/
+__pycache__/

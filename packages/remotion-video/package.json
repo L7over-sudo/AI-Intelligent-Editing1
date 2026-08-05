@@ -1,0 +1,27 @@
+{
+  "name": "@stickmotion/remotion-video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@remotion/media": "^4.0.503",
+    "@remotion/transitions": "^4.0.503",
+    "@stickmotion/shared": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "^4.0.503"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9"
+  }
+}

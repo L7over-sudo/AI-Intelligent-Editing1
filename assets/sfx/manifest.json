@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "license": "CC0-1.0",
+  "source": "Synthesized specifically for StickMotion with FFmpeg; generation commands are documented in assets/sfx/README.md.",
+  "assets": [
+    { "tag": "pop", "file": "pop.wav", "recommendedGainDb": -8 },
+    { "tag": "click", "file": "click.wav", "recommendedGainDb": -10 },
+    { "tag": "whoosh", "file": "whoosh.wav", "recommendedGainDb": -10 },
+    { "tag": "success", "file": "success.wav", "recommendedGainDb": -8 },
+    { "tag": "error", "file": "error.wav", "recommendedGainDb": -8 },
+    { "tag": "typing", "file": "typing.wav", "recommendedGainDb": -12 },
+    { "tag": "clock", "file": "clock.wav", "recommendedGainDb": -12 },
+    { "tag": "impact", "file": "impact.wav", "recommendedGainDb": -8 }
+  ]
+}

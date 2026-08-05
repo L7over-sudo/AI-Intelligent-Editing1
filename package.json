@@ -1,0 +1,36 @@
+{
+  "name": "stickmotion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm dev:services && concurrently -n web,worker -c cyan,magenta \"pnpm --filter @stickmotion/web dev\" \"pnpm --filter @stickmotion/worker dev\"",
+    "dev:services": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-voxcpm.ps1",
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:generate": "pnpm --filter @stickmotion/db prisma:generate",
+    "db:migrate": "pnpm --filter @stickmotion/db prisma:migrate",
+    "db:deploy": "pnpm --filter @stickmotion/db prisma:deploy",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.3.0",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.2",
+    "eslint": "^9.35.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.57.0",
+    "vitest": "^4.0.0"
+  }
+}
+

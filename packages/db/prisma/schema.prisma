@@ -1,0 +1,324 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum AspectRatio {
+  PORTRAIT
+  LANDSCAPE
+}
+
+enum ProjectStatus {
+  DRAFT
+  GENERATING
+  READY
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+enum VisualMode {
+  TEMPLATE
+  AI_IMAGE
+}
+
+enum JobType {
+  VOICE_TRAIN
+  SCRIPT
+  SCENE
+  VOICE
+  SUBTITLE
+  AUDIO_MIX
+  RENDER
+  JIANYING_DRAFT
+  CLEANUP
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  RETRYING
+  CANCEL_REQUESTED
+  CANCELED
+  SUCCEEDED
+  FAILED
+}
+
+enum AssetKind {
+  SVG_SCENE
+  AI_IMAGE
+  CHARACTER_REFERENCE
+  VOICE
+  NARRATION_MIX
+  SFX
+  BGM
+  SUBTITLE_SRT
+  SUBTITLE_ASS
+  VIDEO_PREVIEW
+  VIDEO_FINAL
+}
+
+enum SceneAssetRole {
+  BACKGROUND
+  VISUAL
+  CHARACTER_REFERENCE
+}
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  projects          Project[]
+  voiceProfiles     VoiceProfile[]
+  characterProfiles CharacterProfile[]
+  promptTemplates   PromptTemplate[]
+}
+
+model Project {
+  id                 String            @id @default(cuid())
+  ownerId            String
+  title              String
+  sourceText         String
+  sourceKind         String            @default("TOPIC")
+  aspectRatio        AspectRatio
+  targetDuration     Int
+  language           String            @default("zh-CN")
+  voiceStyle         String
+  voiceProfileId     String?
+  characterProfileId String?
+  subtitleStyle      Json
+  accentColor        String            @default("#FF5C35")
+  visualMode         VisualMode        @default(TEMPLATE)
+  imagePrompt        String            @default("")
+  includeNarration   Boolean           @default(true)
+  includeSubtitles   Boolean           @default(true)
+  includeSoundEffects Boolean          @default(true)
+  status             ProjectStatus     @default(DRAFT)
+  revision           Int               @default(1)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  deletedAt          DateTime?
+  owner              User              @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  voiceProfile       VoiceProfile?     @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  characterProfile   CharacterProfile? @relation(fields: [characterProfileId], references: [id], onDelete: SetNull)
+  scenes             Scene[]
+  assets             Asset[]
+  jobs               GenerationJob[]
+  renderOutputs      RenderOutput[]
+
+  @@index([ownerId, updatedAt])
+  @@index([voiceProfileId])
+  @@index([characterProfileId])
+  @@index([status])
+}
+
+model Scene {
+  id                String           @id @default(cuid())
+  projectId         String
+  order             Int
+  narration         String
+  subtitle          String
+  estimatedDuration Float
+  visualPrompt      String
+  templateElements  Json
+  animation         Json
+  transition        Json
+  soundEffects      Json
+  revision          Int              @default(1)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  project           Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sceneAssets       SceneAsset[]
+  voiceTracks       VoiceTrack[]
+  subtitleCues      SubtitleCue[]
+  soundPlacements   SoundPlacement[]
+
+  @@unique([projectId, order])
+  @@index([projectId])
+}
+
+model Asset {
+  id               String            @id @default(cuid())
+  projectId        String?
+  kind             AssetKind
+  bucket           String
+  objectKey        String
+  contentType      String
+  byteSize         BigInt?
+  checksum         String?
+  source           String
+  license          String?
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+  project          Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  sceneAssets      SceneAsset[]
+  voiceTracks      VoiceTrack[]
+  soundPlacements  SoundPlacement[]
+  renderOutputs    RenderOutput[]
+  voiceProfile     VoiceProfile?
+  characterProfile CharacterProfile?
+
+  @@unique([bucket, objectKey])
+  @@index([projectId, kind])
+}
+
+model VoiceProfile {
+  id        String    @id @default(cuid())
+  ownerId   String
+  assetId   String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  asset     Asset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  projects  Project[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model CharacterProfile {
+  id        String    @id @default(cuid())
+  ownerId   String
+  assetId   String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  asset     Asset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  projects  Project[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model PromptTemplate {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, name])
+  @@index([ownerId, updatedAt])
+}
+
+model SceneAsset {
+  sceneId String
+  assetId String
+  role    SceneAssetRole
+  order   Int            @default(0)
+  scene   Scene          @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  asset   Asset          @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([sceneId, assetId, role])
+}
+
+model VoiceTrack {
+  id           String   @id @default(cuid())
+  sceneId      String
+  assetId      String
+  model        String
+  voice        String
+  instructions String?
+  durationMs   Int?
+  aiGenerated  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  scene        Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  asset        Asset    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([sceneId, createdAt])
+}
+
+model SubtitleCue {
+  id          String   @id @default(cuid())
+  sceneId     String
+  order       Int
+  startMs     Int
+  endMs       Int
+  text        String
+  translation String?
+  highlighted Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  scene       Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+  @@unique([sceneId, order])
+}
+
+model SoundPlacement {
+  id        String   @id @default(cuid())
+  sceneId   String
+  assetId   String
+  offsetMs  Int
+  gainDb    Float    @default(0)
+  tag       String
+  createdAt DateTime @default(now())
+  scene     Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([sceneId])
+}
+
+model GenerationJob {
+  id              String     @id @default(cuid())
+  projectId       String
+  type            JobType
+  status          JobStatus  @default(QUEUED)
+  progress        Int        @default(0)
+  attempt         Int        @default(0)
+  maxAttempts     Int        @default(3)
+  idempotencyKey  String     @unique
+  projectRevision Int
+  input           Json
+  output          Json?
+  errorCode       String?
+  errorMessage    String?
+  queuedAt        DateTime   @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events          JobEvent[]
+
+  @@index([projectId, createdAt])
+  @@index([status, queuedAt])
+}
+
+model JobEvent {
+  id        String        @id @default(cuid())
+  jobId     String
+  status    JobStatus
+  progress  Int
+  code      String
+  message   String?
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  job       GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+}
+
+model RenderOutput {
+  id              String   @id @default(cuid())
+  projectId       String
+  assetId         String
+  projectRevision Int
+  width           Int
+  height          Int
+  durationMs      Int
+  videoCodec      String   @default("h264")
+  audioCodec      String   @default("aac")
+  createdAt       DateTime @default(now())
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asset           Asset    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+}

@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #171717;
+  --color-paper: #f6f3ec;
+  --color-accent: #ff5c35;
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 18% 0%, rgb(255 92 53 / 12%), transparent 28rem),
+    var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+

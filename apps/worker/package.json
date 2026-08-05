@@ -1,0 +1,35 @@
+{
+  "name": "@stickmotion/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:remotion-smoke": "tsx src/scripts/remotion-smoke.ts",
+    "sfx:backfill": "tsx src/scripts/backfill-sound-effects.ts",
+    "sfx:index": "tsx src/scripts/index-external-sound-effects.ts",
+    "subtitles:index": "tsx src/scripts/index-subtitle-templates.ts",
+    "template:knowledge-board": "tsx src/scripts/apply-knowledge-board.ts",
+    "voice:audit": "tsx src/scripts/audit-voice-profile-files.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.503",
+    "@remotion/renderer": "^4.0.503",
+    "@stickmotion/db": "workspace:*",
+    "@stickmotion/media": "workspace:*",
+    "@stickmotion/queue": "workspace:*",
+    "@stickmotion/remotion-video": "workspace:*",
+    "@stickmotion/scene-engine": "workspace:*",
+    "@stickmotion/shared": "workspace:*",
+    "@stickmotion/storage": "workspace:*",
+    "dotenv": "^17.2.2",
+    "openai": "6.49.0",
+    "sharp": "^0.34.5",
+    "zod": "4.4.3"
+  }
+}
