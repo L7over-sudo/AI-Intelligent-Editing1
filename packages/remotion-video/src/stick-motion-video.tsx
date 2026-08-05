@@ -333,7 +333,30 @@ const KnowledgeBoardBackdrop = () => (
       background:
         "radial-gradient(circle at 50% 38%, #ffffff 0%, #fdfdfc 68%, #f7f7f5 100%)",
     }}
-  />
+  >
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        top: "30%",
+        height: "53%",
+        width: "6%",
+        background:
+          "linear-gradient(to right, rgba(30,30,30,0.14), rgba(30,30,30,0.05), transparent)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        right: 0,
+        top: "30%",
+        height: "53%",
+        width: "6%",
+        background:
+          "linear-gradient(to left, rgba(30,30,30,0.14), rgba(30,30,30,0.05), transparent)",
+      }}
+    />
+  </AbsoluteFill>
 );
 
 const KnowledgeBoardChrome = ({
