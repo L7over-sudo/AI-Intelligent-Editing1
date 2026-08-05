@@ -5,7 +5,9 @@ import {
   applyNarrationTiming,
   createStoryboardPrompt,
   estimateNarrationDuration,
+  formatTextOpening,
   getStoryboardDuration,
+  splitFirstSentence,
   storyboardSchema,
 } from "./storyboard";
 
@@ -70,6 +72,68 @@ describe("narration driven timing", () => {
         "这是一段明显更长的旁白文案，它包含更多信息，也需要更多朗读时间。",
       ),
     );
+  });
+});
+
+describe("first sentence split", () => {
+  it("splits the opening sentence from the remaining copy", () => {
+    expect(
+      splitFirstSentence("第一句开场。第二句正文。第三句收尾。"),
+    ).toEqual({
+      firstSentence: "第一句开场。",
+      remainingText: "第二句正文。第三句收尾。",
+    });
+  });
+
+  it("returns the whole text when there is only one sentence", () => {
+    expect(splitFirstSentence("只有一句文案")).toEqual({
+      firstSentence: "只有一句文案",
+      remainingText: "",
+    });
+  });
+});
+
+describe("text opening scene", () => {
+  it("accepts a text-only opening scene without visual content", () => {
+    const opening = {
+      ...scene,
+      narration: "第一句开场。",
+      visualPrompt: "",
+      templateElements: [],
+      isTextOpening: true,
+    };
+    expect(() =>
+      storyboardSchema.parse({
+        title: "开场",
+        summary: "开场摘要",
+        scenes: [opening],
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects visual scenes that are missing a prompt or elements", () => {
+    expect(() =>
+      storyboardSchema.parse({
+        title: "开场",
+        summary: "开场摘要",
+        scenes: [{ ...scene, visualPrompt: "", templateElements: [] }],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("text opening formatting", () => {
+  it("strips punctuation and keeps at most two lines", () => {
+    const formatted = formatTextOpening(
+      "很多人一遇到问题，第一反应不是去解决问题，而是先解决自己。",
+    );
+    expect(formatted.singleLine).not.toContain("，");
+    expect(formatted.singleLine).not.toContain("。");
+    expect(formatted.lines.length).toBeLessThanOrEqual(2);
+  });
+
+  it("keeps a short opening on one line", () => {
+    expect(formatTextOpening("开工。").displayText).toBe("开工");
   });
 });
 

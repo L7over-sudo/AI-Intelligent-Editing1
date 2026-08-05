@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "license": "CC0-1.0",
-  "source": "Synthesized specifically for StickMotion with FFmpeg; generation commands are documented in assets/sfx/README.md.",
+  "license": "user-provided; usage rights asserted by the local library owner",
+  "source": "Built-in StickMotion SFX synthesized with FFmpeg plus a user-provided water drop for the opening template.",
   "assets": [
     { "tag": "pop", "file": "pop.wav", "recommendedGainDb": -8 },
     { "tag": "click", "file": "click.wav", "recommendedGainDb": -10 },
@@ -10,6 +10,7 @@
     { "tag": "error", "file": "error.wav", "recommendedGainDb": -8 },
     { "tag": "typing", "file": "typing.wav", "recommendedGainDb": -12 },
     { "tag": "clock", "file": "clock.wav", "recommendedGainDb": -12 },
-    { "tag": "impact", "file": "impact.wav", "recommendedGainDb": -8 }
+    { "tag": "impact", "file": "impact.wav", "recommendedGainDb": -8 },
+    { "tag": "water", "file": "water-drop.wav", "recommendedGainDb": -4 }
   ]
 }

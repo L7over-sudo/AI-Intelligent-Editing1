@@ -30,6 +30,20 @@ describe("remotion render input", () => {
     expect(remotionRenderInputSchema.parse(validInput).fps).toBe(30);
   });
 
+  it("accepts a text-only opening scene flag", () => {
+    const parsed = remotionRenderInputSchema.parse({
+      ...validInput,
+      scenes: [
+        {
+          ...validInput.scenes[0],
+          isTextOpening: true,
+          subtitleCues: [{ startMs: 0, endMs: 2_000, text: "开场" }],
+        },
+      ],
+    });
+    expect(parsed.scenes[0]?.isTextOpening).toBe(true);
+  });
+
   it("rejects traversal paths and odd render dimensions", () => {
     expect(() =>
       remotionRenderInputSchema.parse({

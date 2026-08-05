@@ -26,7 +26,7 @@ export async function POST(
       include: {
         scenes: {
           where: { id: { in: input.sceneIds } },
-          select: { id: true },
+          select: { id: true, isTextOpening: true },
         },
       },
     });
@@ -35,8 +35,18 @@ export async function POST(
       throw new Error("AI_IMAGE_MODE_REQUIRED");
     }
 
-    const uniqueSceneIds = [...new Set(input.sceneIds)];
-    if (project.scenes.length !== uniqueSceneIds.length) {
+    const uniqueSceneIds = [
+      ...new Set(
+        project.scenes
+          .filter((scene) => !scene.isTextOpening)
+          .map((scene) => scene.id),
+      ),
+    ];
+    if (uniqueSceneIds.length === 0) {
+      throw new Error("NO_VISUAL_SCENES");
+    }
+    if (project.scenes.filter((scene) => !scene.isTextOpening).length !==
+      uniqueSceneIds.length) {
       throw new Error("SCENE_NOT_FOUND");
     }
 

@@ -9,7 +9,13 @@ import {
   type VoiceProfileSummary,
 } from "./voice-profile-panel";
 
-type StudioTab = "visual" | "character" | "voice" | "music";
+type StudioTab =
+  | "visual"
+  | "template"
+  | "transition"
+  | "character"
+  | "voice"
+  | "music";
 type AspectRatio = "PORTRAIT" | "LANDSCAPE";
 type OutputMode = "NARRATED" | "VISUAL_ONLY";
 type VideoTemplate = "FULL_BLEED" | "KNOWLEDGE_BOARD";
@@ -27,6 +33,8 @@ const sampleCopy =
   "你有没有发现，越重要的事情，我们越容易拖延？这并不是因为懒，而是大脑在回避不确定性。把任务拆成一个两分钟就能开始的小动作，先完成第一步，行动就会自然发生。";
 const tabs: Array<{ id: StudioTab; label: string }> = [
   { id: "visual", label: "画面" },
+  { id: "template", label: "模板" },
+  { id: "transition", label: "转场" },
   { id: "character", label: "角色" },
   { id: "voice", label: "配音" },
   { id: "music", label: "音乐" },
@@ -73,6 +81,7 @@ export function CreativeStudio({
     useState("我的参考人物");
   const [characterReferenceFile, setCharacterReferenceFile] = useState<File>();
   const [transitionsEnabled, setTransitionsEnabled] = useState(true);
+  const [useTextOpeningTemplate, setUseTextOpeningTemplate] = useState(false);
   const [music, setMusic] = useState("NONE");
   const [keepOriginal, setKeepOriginal] = useState(true);
   const [imageApiReady, setImageApiReady] = useState(false);
@@ -191,6 +200,8 @@ export function CreativeStudio({
           imagePrompt: imagePrompt.trim(),
           includeNarration: outputMode === "NARRATED",
           includeSubtitles: outputMode === "NARRATED",
+          useTextOpeningTemplate,
+          backgroundMusic: music,
           subtitleStyle: {
             mode: "CHINESE",
             fontSize: 60,
@@ -456,14 +467,24 @@ export function CreativeStudio({
                 setImagePrompt={setImagePrompt}
                 aspectRatio={aspectRatio}
                 setAspectRatio={setAspectRatio}
+                imageApiReady={imageApiReady}
+                onOpenSettings={onOpenSettings}
+              />
+            )}
+            {activeTab === "template" && (
+              <TemplatePanel
                 videoTemplate={videoTemplate}
                 setVideoTemplate={setVideoTemplate}
                 templateHeader={templateHeader}
                 setTemplateHeader={setTemplateHeader}
+                useTextOpeningTemplate={useTextOpeningTemplate}
+                setUseTextOpeningTemplate={setUseTextOpeningTemplate}
+              />
+            )}
+            {activeTab === "transition" && (
+              <TransitionPanel
                 transitionsEnabled={transitionsEnabled}
                 setTransitionsEnabled={setTransitionsEnabled}
-                imageApiReady={imageApiReady}
-                onOpenSettings={onOpenSettings}
               />
             )}
             {activeTab === "character" && (
@@ -807,17 +828,159 @@ function PromptTemplateControls({
     </div>
   );
 }
+function TransitionPanel({
+  transitionsEnabled,
+  setTransitionsEnabled,
+}: {
+  transitionsEnabled: boolean;
+  setTransitionsEnabled: (value: boolean) => void;
+}) {
+  return (
+    <div>
+      <h2 className="font-black">镜头转场</h2>
+      <p className="mt-1 text-xs leading-5 text-black/40">
+        添加转场会使用淡入、溶解、推入或缩放；关闭后镜头直接切换。
+      </p>
+      <div className="mt-4 grid grid-cols-2 rounded-xl bg-[#f0f3f4] p-1">
+        <button
+          type="button"
+          onClick={() => setTransitionsEnabled(true)}
+          className={`rounded-lg px-3 py-3 text-xs font-black transition ${
+            transitionsEnabled
+              ? "bg-white text-black shadow-sm"
+              : "text-black/40"
+          }`}
+        >
+          添加转场
+        </button>
+        <button
+          type="button"
+          onClick={() => setTransitionsEnabled(false)}
+          className={`rounded-lg px-3 py-3 text-xs font-black transition ${
+            !transitionsEnabled
+              ? "bg-white text-black shadow-sm"
+              : "text-black/40"
+          }`}
+        >
+          不加转场
+        </button>
+      </div>
+    </div>
+  );
+}
+function TemplatePanel({
+  videoTemplate,
+  setVideoTemplate,
+  templateHeader,
+  setTemplateHeader,
+  useTextOpeningTemplate,
+  setUseTextOpeningTemplate,
+}: {
+  videoTemplate: VideoTemplate;
+  setVideoTemplate: (value: VideoTemplate) => void;
+  templateHeader: string;
+  setTemplateHeader: (value: string) => void;
+  useTextOpeningTemplate: boolean;
+  setUseTextOpeningTemplate: (value: boolean) => void;
+}) {
+  return (
+    <div className="grid gap-6">
+      <section>
+        <h3 className="text-sm font-black">视频模板</h3>
+        <p className="mt-1 text-xs leading-5 text-black/40">
+          知识白板会缩小分镜图片，并为顶部标题和底部字幕保留独立区域。
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setVideoTemplate("KNOWLEDGE_BOARD")}
+            className={`rounded-2xl border p-3 text-left transition ${
+              videoTemplate === "KNOWLEDGE_BOARD"
+                ? "border-[#16bec8] bg-cyan-50"
+                : "border-black/[0.07] bg-white"
+            }`}
+          >
+            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10 bg-white">
+              <span className="absolute inset-x-[14%] top-[8%] h-1 rounded bg-black/70" />
+              <span className="absolute inset-x-[17%] top-[25%] bottom-[27%] rounded bg-gradient-to-br from-slate-100 to-cyan-100" />
+              <span className="absolute inset-x-0 bottom-[20%] h-px bg-black" />
+              <span className="absolute inset-x-[25%] bottom-[8%] h-1.5 rounded bg-black/70" />
+            </span>
+            <strong className="block text-sm">知识白板</strong>
+            <span className="mt-1 block text-[11px] text-black/40">
+              图片缩小，字幕不遮挡画面
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVideoTemplate("FULL_BLEED")}
+            className={`rounded-2xl border p-3 text-left transition ${
+              videoTemplate === "FULL_BLEED"
+                ? "border-[#16bec8] bg-cyan-50"
+                : "border-black/[0.07] bg-white"
+            }`}
+          >
+            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-slate-300 via-cyan-100 to-orange-100">
+              <span className="absolute inset-x-[18%] bottom-[12%] h-2 rounded bg-white shadow" />
+            </span>
+            <strong className="block text-sm">全屏画面</strong>
+            <span className="mt-1 block text-[11px] text-black/40">
+              保留原来的铺满画面样式
+            </span>
+          </button>
+        </div>
+        {videoTemplate === "KNOWLEDGE_BOARD" && (
+          <label className="mt-4 grid gap-2 text-sm font-bold">
+            顶部栏目标题
+            <input
+              value={templateHeader}
+              onChange={(event) => setTemplateHeader(event.target.value)}
+              maxLength={120}
+              placeholder="例如：— 思维提升 | 表达沟通 | 职场成长 —"
+              className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+            />
+          </label>
+        )}
+      </section>
+
+      <section>
+        <h3 className="text-sm font-black">开场模板</h3>
+        <p className="mt-1 text-xs leading-5 text-black/40">
+          手动选择是否使用红字开场：首句去标点、最多两行，并配上水滴音。
+        </p>
+        <div className="mt-3 grid grid-cols-2 rounded-xl bg-[#f0f3f4] p-1">
+          <button
+            type="button"
+            onClick={() => setUseTextOpeningTemplate(false)}
+            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
+              !useTextOpeningTemplate
+                ? "bg-white text-black shadow-sm"
+                : "text-black/40"
+            }`}
+          >
+            不使用
+          </button>
+          <button
+            type="button"
+            onClick={() => setUseTextOpeningTemplate(true)}
+            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
+              useTextOpeningTemplate
+                ? "bg-white text-black shadow-sm"
+                : "text-black/40"
+            }`}
+          >
+            红字开场
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
 function VisualPanel({
   imagePrompt,
   setImagePrompt,
   aspectRatio,
   setAspectRatio,
-  videoTemplate,
-  setVideoTemplate,
-  templateHeader,
-  setTemplateHeader,
-  transitionsEnabled,
-  setTransitionsEnabled,
   imageApiReady,
   onOpenSettings,
 }: {
@@ -825,12 +988,6 @@ function VisualPanel({
   setImagePrompt: (value: string) => void;
   aspectRatio: AspectRatio;
   setAspectRatio: (value: AspectRatio) => void;
-  videoTemplate: VideoTemplate;
-  setVideoTemplate: (value: VideoTemplate) => void;
-  templateHeader: string;
-  setTemplateHeader: (value: string) => void;
-  transitionsEnabled: boolean;
-  setTransitionsEnabled: (value: boolean) => void;
   imageApiReady: boolean;
   onOpenSettings: () => void;
 }) {
@@ -909,95 +1066,6 @@ function VisualPanel({
               </span>
             </button>
           ))}
-        </div>
-      </section>
-
-      <section>
-        <h3 className="text-sm font-black">视频模板</h3>
-        <p className="mt-1 text-xs leading-5 text-black/40">
-          知识白板会缩小分镜图片，并为顶部标题和底部字幕保留独立区域。
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setVideoTemplate("KNOWLEDGE_BOARD")}
-            className={`rounded-2xl border p-3 text-left transition ${
-              videoTemplate === "KNOWLEDGE_BOARD"
-                ? "border-[#16bec8] bg-cyan-50"
-                : "border-black/[0.07] bg-white"
-            }`}
-          >
-            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10 bg-white">
-              <span className="absolute inset-x-[14%] top-[8%] h-1 rounded bg-black/70" />
-              <span className="absolute inset-x-[17%] top-[25%] bottom-[27%] rounded bg-gradient-to-br from-slate-100 to-cyan-100" />
-              <span className="absolute inset-x-0 bottom-[20%] h-px bg-black" />
-              <span className="absolute inset-x-[25%] bottom-[8%] h-1.5 rounded bg-black/70" />
-            </span>
-            <strong className="block text-sm">知识白板</strong>
-            <span className="mt-1 block text-[11px] text-black/40">
-              图片缩小，字幕不遮挡画面
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setVideoTemplate("FULL_BLEED")}
-            className={`rounded-2xl border p-3 text-left transition ${
-              videoTemplate === "FULL_BLEED"
-                ? "border-[#16bec8] bg-cyan-50"
-                : "border-black/[0.07] bg-white"
-            }`}
-          >
-            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-slate-300 via-cyan-100 to-orange-100">
-              <span className="absolute inset-x-[18%] bottom-[12%] h-2 rounded bg-white shadow" />
-            </span>
-            <strong className="block text-sm">全屏画面</strong>
-            <span className="mt-1 block text-[11px] text-black/40">
-              保留原来的铺满画面样式
-            </span>
-          </button>
-        </div>
-        {videoTemplate === "KNOWLEDGE_BOARD" && (
-          <label className="mt-4 grid gap-2 text-sm font-bold">
-            顶部栏目标题
-            <input
-              value={templateHeader}
-              onChange={(event) => setTemplateHeader(event.target.value)}
-              maxLength={120}
-              placeholder="例如：— 思维提升 | 表达沟通 | 职场成长 —"
-              className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-            />
-          </label>
-        )}
-      </section>
-
-      <section>
-        <h3 className="text-sm font-black">镜头转场</h3>
-        <p className="mt-1 text-xs leading-5 text-black/40">
-          添加转场会使用淡入、溶解、推入或缩放；关闭后镜头直接切换。
-        </p>
-        <div className="mt-3 grid grid-cols-2 rounded-xl bg-[#f0f3f4] p-1">
-          <button
-            type="button"
-            onClick={() => setTransitionsEnabled(true)}
-            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
-              transitionsEnabled
-                ? "bg-white text-black shadow-sm"
-                : "text-black/40"
-            }`}
-          >
-            添加转场
-          </button>
-          <button
-            type="button"
-            onClick={() => setTransitionsEnabled(false)}
-            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
-              !transitionsEnabled
-                ? "bg-white text-black shadow-sm"
-                : "text-black/40"
-            }`}
-          >
-            不加转场
-          </button>
         </div>
       </section>
 
@@ -1278,6 +1346,11 @@ function MusicPanel({
       <div className="mt-4 grid gap-3">
         {[
           ["NONE", "暂不添加", "保持纯净旁白"],
+          [
+            "BUILTIN",
+            "使用自带《白鸽乌鸦相爱的戏码》",
+            "短于视频会自动循环到朗读结束",
+          ],
           ["UPLOAD", "创建后上传", "支持本地授权音频文件"],
         ].map(([id, label, description]) => (
           <button

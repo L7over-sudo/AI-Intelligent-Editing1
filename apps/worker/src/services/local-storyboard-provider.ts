@@ -230,6 +230,7 @@ function makeScene(
       duration: index === 0 ? 0.25 : 0.45,
     },
     soundEffects: [],
+    isTextOpening: false,
   };
 }
 

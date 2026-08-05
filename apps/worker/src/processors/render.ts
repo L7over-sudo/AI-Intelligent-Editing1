@@ -17,6 +17,7 @@ import { renderSvgScene } from "@stickmotion/scene-engine";
 import {
   applyTransitionPreference,
   animationSchema,
+  formatTextOpening,
   renderGenerationInputSchema,
   subtitleStyleSchema,
   templateElementSchema,
@@ -155,7 +156,18 @@ export function createRenderProcessor(
         const imagePath = path.join(workspace, `scene-${index}.png`);
         let sourceImage: Uint8Array;
 
-        if (project.visualMode === "AI_IMAGE") {
+        if (scene.isTextOpening) {
+          sourceImage = await sharp({
+            create: {
+              width,
+              height,
+              channels: 3,
+              background: "#0B0B0F",
+            },
+          })
+            .png()
+            .toBuffer();
+        } else if (project.visualMode === "AI_IMAGE") {
           const cached = scene.sceneAssets.find((link) =>
             assetMatchesRevision(
               link.asset.metadata,
@@ -205,7 +217,7 @@ export function createRenderProcessor(
         let voicePath: string | undefined;
         let voiceFile: string | undefined;
         const voiceAsset = scene.voiceTracks[0]?.asset;
-        if (project.includeNarration && voiceAsset) {
+        if (project.includeNarration && voiceAsset && !scene.isTextOpening) {
           voiceFile = `voice-${index}${mediaExtension(voiceAsset.contentType)}`;
           voicePath = path.join(workspace, voiceFile);
           await writeFile(
@@ -221,10 +233,15 @@ export function createRenderProcessor(
           ...(voicePath ? { voicePath } : {}),
         });
         const sceneDurationMs = Math.round(scene.estimatedDuration * 1_000);
-        const localSubtitleCues = project.includeSubtitles
-          ? alignTextToDuration(scene.subtitle, sceneDurationMs)
-          : [];
-        if (project.includeSubtitles) {
+        const formattedOpening = scene.isTextOpening
+          ? formatTextOpening(scene.subtitle)
+          : undefined;
+        const cueText = formattedOpening?.singleLine ?? scene.subtitle;
+        const localSubtitleCues =
+          project.includeSubtitles || scene.isTextOpening
+            ? alignTextToDuration(cueText, sceneDurationMs)
+            : [];
+        if (project.includeSubtitles || scene.isTextOpening) {
           for (const cue of localSubtitleCues) {
             subtitleCues.push({
               ...cue,
@@ -258,6 +275,10 @@ export function createRenderProcessor(
           durationMs: sceneDurationMs,
           animation,
           transition,
+          isTextOpening: scene.isTextOpening,
+          ...(formattedOpening
+            ? { openingText: formattedOpening.displayText }
+            : {}),
           ...(voiceFile ? { voiceFile } : {}),
           subtitleCues: localSubtitleCues,
           soundEffects: localSoundEffects,

@@ -1,0 +1,2 @@
+ALTER TABLE "Scene"
+  ADD COLUMN "isTextOpening" BOOLEAN NOT NULL DEFAULT false;

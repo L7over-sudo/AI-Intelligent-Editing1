@@ -4,6 +4,7 @@ import { videoTemplateSchema } from "./video-template";
 
 export const aspectRatioSchema = z.enum(["PORTRAIT", "LANDSCAPE"]);
 export const visualModeSchema = z.enum(["TEMPLATE", "AI_IMAGE"]);
+export const backgroundMusicSchema = z.enum(["NONE", "BUILTIN", "UPLOAD"]);
 
 function withoutLegacyVisualEffects(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
@@ -55,6 +56,8 @@ export const createProjectSchema = z
     includeNarration: z.boolean().default(true),
     includeSubtitles: z.boolean().default(true),
     includeSoundEffects: z.boolean().default(true),
+    useTextOpeningTemplate: z.boolean().default(false),
+    backgroundMusic: backgroundMusicSchema.default("NONE"),
   })
   .strict();
 

@@ -37,6 +37,93 @@ function gainToVolume(gainDb: number): number {
   return Math.min(1, Math.max(0, 10 ** (gainDb / 20)));
 }
 
+const RED_OPENING_COLOR = "#BE2426";
+
+function RedTextOpening({
+  text,
+  fps,
+}: {
+  text: string;
+  fps: number;
+}) {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const entranceFrames = Math.min(15, Math.round(fps * 0.5));
+  const scale = interpolate(
+    frame,
+    [0, entranceFrames * 0.4, entranceFrames * 0.95, entranceFrames * 1.35],
+    [0.35, 1.28, 1.03, 1],
+    clamp,
+  );
+  const translateY = interpolate(
+    frame,
+    [0, entranceFrames],
+    [height * 0.045, 0],
+    clamp,
+  );
+  const opacity = interpolate(
+    frame,
+    [0, Math.max(1, entranceFrames * 0.3)],
+    [0.6, 1],
+    clamp,
+  );
+  const glow = interpolate(
+    frame,
+    [0, entranceFrames * 0.4, entranceFrames, entranceFrames * 1.4],
+    [0, 1, 0.35, 0.3],
+    clamp,
+  );
+  const lines = text.split("\n").filter((line) => line.length > 0);
+  const longestLineLength = Math.max(
+    1,
+    ...lines.map((line) => Array.from(line).length),
+  );
+  const baseFontSize = Math.round(Math.min(width, height) * 0.11);
+  const widthFontSize = Math.floor((width * 0.86) / longestLineLength);
+  const heightFontSize = Math.floor(
+    (height * 0.46) / Math.max(1, lines.length * 1.35),
+  );
+  const fontSize = Math.max(
+    28,
+    Math.min(baseFontSize, widthFontSize, heightFontSize),
+  );
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity,
+        transform: `translate3d(0, ${translateY}px, 0) scale(${scale})`,
+      }}
+    >
+      <div
+        style={{
+          width: "86%",
+          textAlign: "center",
+          color: RED_OPENING_COLOR,
+          fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+          fontWeight: 900,
+          fontSize,
+          lineHeight: 1.35,
+          letterSpacing: "0.02em",
+          whiteSpace: "pre-line",
+          textShadow: `0 ${Math.round(6 + 8 * glow)}px ${Math.round(
+            18 + 62 * glow,
+          )}px rgba(255,${Math.round(92 - 46 * glow)},${Math.round(
+            90 - 52 * glow,
+          )},${0.35 + 0.55 * glow})`,
+        }}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
 function sceneTransform(
   scene: Scene,
   frame: number,
@@ -264,7 +351,7 @@ const SceneLayer = ({
             backgroundColor: "#111",
           }}
         />
-        {activeCue ? (
+        {activeCue && !scene.isTextOpening ? (
           <div
             style={{
               position: "absolute",
@@ -306,6 +393,12 @@ const SceneLayer = ({
             {watermark}
           </div>
         ) : null}
+        {scene.isTextOpening ? (
+          <RedTextOpening
+            text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
+            fps={fps}
+          />
+        ) : null}
         {audioLayers}
       </AbsoluteFill>
     );
@@ -323,7 +416,7 @@ const SceneLayer = ({
         }}
       />
       {audioLayers}
-      {activeCue ? (
+      {activeCue && !scene.isTextOpening ? (
         <div
           style={{
             position: "absolute",
@@ -339,6 +432,12 @@ const SceneLayer = ({
         >
           {activeCue.text}
         </div>
+      ) : null}
+      {scene.isTextOpening ? (
+        <RedTextOpening
+          text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
+          fps={fps}
+        />
       ) : null}
       {watermark ? (
         <div

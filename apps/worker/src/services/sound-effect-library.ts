@@ -11,10 +11,7 @@ import {
 import { LocalObjectStore } from "@stickmotion/storage";
 import { z } from "zod";
 
-import {
-  planAutomaticSoundEffects,
-  soundEffectOffsetMs,
-} from "./automatic-sound-effects";
+import { soundEffectOffsetMs } from "./automatic-sound-effects";
 import {
   externalSoundEffectObjectKey,
   findExternalSoundEffectRoot,
@@ -318,13 +315,7 @@ export async function synchronizeProjectSoundEffects(
   const existingEffects = project.scenes.map((scene) =>
     soundEffectSchema.array().parse(scene.soundEffects),
   );
-  const plannedEffects = planAutomaticSoundEffects(
-    project.scenes.map((scene, index) => ({
-      narration: scene.narration,
-      subtitle: scene.subtitle,
-      soundEffects: existingEffects[index] ?? [],
-    })),
-  );
+  const plannedEffects = existingEffects;
   const assets = await ensureSoundEffectLibrary(objectStore, prisma);
   let placementCount = 0;
 

@@ -134,7 +134,10 @@ export function createSceneImageProcessor(
     if (project.visualMode !== "AI_IMAGE") {
       throw new Error("AI_IMAGE_MODE_REQUIRED");
     }
-    if (project.scenes.length !== new Set(input.sceneIds).size) {
+    const visualScenes = project.scenes.filter(
+      (scene) => !scene.isTextOpening,
+    );
+    if (visualScenes.length !== new Set(input.sceneIds).size) {
       throw new Error("SCENE_NOT_FOUND");
     }
 
@@ -283,7 +286,7 @@ export function createSceneImageProcessor(
       assetIds.push(asset.id);
     };
 
-    for (const batch of batchSceneImages(project.scenes)) {
+    for (const batch of batchSceneImages(visualScenes)) {
       const attempted = await Promise.all(
         batch.map((scene) =>
           prepareSceneImage(scene).catch((error: unknown) => ({ scene, error })),
@@ -333,13 +336,14 @@ export function createSceneImageProcessor(
       }
 
       const progress =
-        5 + Math.round((assetIds.length / project.scenes.length) * 90);
+        5 + Math.round((assetIds.length / Math.max(1, visualScenes.length)) * 90);
       await localJob.updateProgress(progress);
     }
 
     const automaticVoiceJobIds: string[] = [];
     await prisma.$transaction(async (tx) => {
       for (const scene of project.scenes) {
+        if (scene.isTextOpening) continue;
         if (
           !shouldQueueAutomaticVoice({
             includeNarration: project.includeNarration,

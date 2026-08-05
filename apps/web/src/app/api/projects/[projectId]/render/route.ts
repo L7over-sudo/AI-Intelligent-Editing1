@@ -46,6 +46,7 @@ export async function POST(
           select: {
             id: true,
             revision: true,
+            isTextOpening: true,
             sceneAssets: {
               where: { role: "VISUAL" },
               select: { asset: { select: { metadata: true } } },
@@ -57,9 +58,12 @@ export async function POST(
     });
     if (!project) throw new Error("PROJECT_NOT_FOUND");
     if (project.scenes.length === 0) throw new Error("RENDER_SCENES_REQUIRED");
+    const visualScenes = project.scenes.filter(
+      (scene) => !scene.isTextOpening,
+    );
     if (
       project.visualMode === "AI_IMAGE" &&
-      project.scenes.some(
+      visualScenes.some(
         (scene) =>
           !scene.sceneAssets.some((link) =>
             assetMatchesRevision(

@@ -38,6 +38,8 @@ export const remotionSceneSchema = z
       .max(15 * 60 * 1_000),
     animation: animationSchema,
     transition: transitionSchema,
+    isTextOpening: z.boolean().optional(),
+    openingText: z.string().trim().max(1_200).optional(),
     voiceFile: remotionMediaFileSchema.optional(),
     subtitleCues: z.array(remotionSubtitleCueSchema).max(200),
     soundEffects: z.array(remotionSoundEffectSchema).max(50),

@@ -88,18 +88,54 @@ export const soundEffectSchema = z
   })
   .strict();
 
+const storyboardSceneShape = {
+  narration: z.string().trim().min(1).max(1_200),
+  subtitle: z.string().trim().min(1).max(1_200),
+  estimatedDuration: z.number().min(1.5),
+  visualPrompt: z.string().trim(),
+  templateElements: z.array(templateElementSchema).max(12),
+  animation: animationSchema,
+  transition: transitionSchema,
+  soundEffects: z.array(soundEffectSchema).max(5),
+  isTextOpening: z.boolean().default(false),
+} as const;
+
 export const storyboardSceneSchema = z
-  .object({
-    narration: z.string().trim().min(1).max(1_200),
-    subtitle: z.string().trim().min(1).max(1_200),
-    estimatedDuration: z.number().min(1.5),
-    visualPrompt: z.string().trim().min(8),
-    templateElements: z.array(templateElementSchema).min(1).max(12),
-    animation: animationSchema,
-    transition: transitionSchema,
-    soundEffects: z.array(soundEffectSchema).max(5),
-  })
-  .strict();
+  .object(storyboardSceneShape)
+  .strict()
+  .superRefine((scene, context) => {
+    if (scene.isTextOpening) {
+      if (scene.visualPrompt.length > 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["visualPrompt"],
+          message: "Text opening scenes must not have a visual prompt",
+        });
+      }
+      if (scene.templateElements.length > 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["templateElements"],
+          message: "Text opening scenes must not have template elements",
+        });
+      }
+      return;
+    }
+    if (scene.visualPrompt.length < 8) {
+      context.addIssue({
+        code: "custom",
+        path: ["visualPrompt"],
+        message: "Visual scenes require a prompt of at least 8 characters",
+      });
+    }
+    if (scene.templateElements.length < 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["templateElements"],
+        message: "Visual scenes require at least one template element",
+      });
+    }
+  });
 
 export const storyboardSchema = z
   .object({
@@ -109,7 +145,7 @@ export const storyboardSchema = z
   })
   .strict();
 
-export const scenePatchSchema = storyboardSceneSchema.partial().strict();
+export const scenePatchSchema = z.object(storyboardSceneShape).partial().strict();
 
 export const sceneReorderSchema = z
   .object({
@@ -163,6 +199,80 @@ export function estimateNarrationDuration(narration: string): number {
   const pauses = text.match(/[，。！？；：,.!?;:…]/gu)?.length ?? 0;
   const seconds = cjkCharacters / 4 + words / 2.6 + pauses * 0.12;
   return Math.max(1.5, Math.round(seconds * 10) / 10);
+}
+
+const openingSentenceBoundaryPattern = /[。.!！？?；;…]/u;
+const openingClosingMarkPattern = /[”’"'）)\]】》〉]/u;
+
+export function splitFirstSentence(
+  sourceText: string,
+): { firstSentence: string; remainingText: string } {
+  const normalized = sourceText.replace(/\r\n?/gu, "\n").trim();
+  if (!normalized) return { firstSentence: "", remainingText: "" };
+
+  const characters = Array.from(normalized);
+  let buffer = "";
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index]!;
+    buffer += character;
+    if (!openingSentenceBoundaryPattern.test(character)) continue;
+    while (
+      index + 1 < characters.length &&
+      (openingSentenceBoundaryPattern.test(characters[index + 1]!) ||
+        openingClosingMarkPattern.test(characters[index + 1]!))
+    ) {
+      index += 1;
+      buffer += characters[index]!;
+    }
+    const firstSentence = buffer.trim();
+    const remainingText = characters.slice(index + 1).join("").trim();
+    return { firstSentence, remainingText };
+  }
+
+  return { firstSentence: normalized, remainingText: "" };
+}
+
+export function formatTextOpening(text: string): {
+  singleLine: string;
+  displayText: string;
+  lines: readonly string[];
+} {
+  const singleLine = text
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const characters = Array.from(singleLine);
+  if (characters.length <= 13) {
+    return {
+      singleLine,
+      displayText: singleLine,
+      lines: singleLine ? [singleLine] : [],
+    };
+  }
+
+  const midpoint = Math.ceil(characters.length / 2);
+  let splitAt = midpoint;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < characters.length; index += 1) {
+    if (characters[index] !== " ") continue;
+    const distance = Math.abs(index - midpoint);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      splitAt = index;
+    }
+  }
+  if (splitAt < 3 || splitAt > characters.length - 3) {
+    splitAt = midpoint;
+  }
+
+  const firstLine = characters.slice(0, splitAt).join("").trim();
+  const secondLine = characters.slice(splitAt).join("").trim();
+  const lines = [firstLine, secondLine].filter(Boolean);
+  return {
+    singleLine,
+    displayText: lines.join("\n"),
+    lines,
+  };
 }
 
 export function applyNarrationTiming(storyboard: Storyboard): Storyboard {

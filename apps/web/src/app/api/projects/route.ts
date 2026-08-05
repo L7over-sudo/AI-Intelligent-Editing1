@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { NextResponse } from "next/server";
 
 import { getPrisma } from "@stickmotion/db";
 import { createProjectSchema } from "@stickmotion/shared";
+import { LocalObjectStore } from "@stickmotion/storage";
 
 import { getCurrentUser } from "@/server/auth";
 import { apiError } from "@/server/http";
@@ -63,8 +68,36 @@ export async function POST(request: Request) {
         imagePrompt: input.imagePrompt,
         includeNarration: input.includeNarration,
         includeSubtitles: input.includeSubtitles,
+        useTextOpeningTemplate: input.useTextOpeningTemplate,
       },
     });
+
+    if (input.backgroundMusic === "BUILTIN") {
+      const objectStore = new LocalObjectStore();
+      const bgmPath = path.resolve(
+        process.cwd(),
+        "../../assets/bgm/default-bgm.mp3",
+      );
+      const body = await readFile(bgmPath);
+      const objectKey = `projects/${project.id}/uploads/${randomUUID()}-default-bgm.mp3`;
+      const stored = await objectStore.put(
+        objectKey,
+        new Uint8Array(body),
+        "audio/mpeg",
+      );
+      await prisma.asset.create({
+        data: {
+          projectId: project.id,
+          kind: "BGM",
+          bucket: stored.bucket,
+          objectKey: stored.objectKey,
+          contentType: "audio/mpeg",
+          byteSize: BigInt(stored.byteSize),
+          source: "user-upload",
+          license: "user-confirmed",
+        },
+      });
+    }
 
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {

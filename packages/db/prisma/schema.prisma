@@ -99,6 +99,7 @@ model Project {
   includeNarration   Boolean           @default(true)
   includeSubtitles   Boolean           @default(true)
   includeSoundEffects Boolean          @default(true)
+  useTextOpeningTemplate Boolean       @default(false)
   status             ProjectStatus     @default(DRAFT)
   revision           Int               @default(1)
   createdAt          DateTime          @default(now())
@@ -130,6 +131,7 @@ model Scene {
   animation         Json
   transition        Json
   soundEffects      Json
+  isTextOpening     Boolean          @default(false)
   revision          Int              @default(1)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt

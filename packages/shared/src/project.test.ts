@@ -36,7 +36,27 @@ describe("createProjectSchema duration policy", () => {
       includeNarration: true,
       includeSubtitles: true,
       includeSoundEffects: true,
+      useTextOpeningTemplate: false,
+      backgroundMusic: "NONE",
     });
+  });
+
+  it("supports opting into the text opening template", () => {
+    expect(
+      createProjectSchema.parse({
+        ...projectInput,
+        useTextOpeningTemplate: true,
+      }).useTextOpeningTemplate,
+    ).toBe(true);
+  });
+
+  it("supports choosing the built-in background music", () => {
+    expect(
+      createProjectSchema.parse({
+        ...projectInput,
+        backgroundMusic: "BUILTIN",
+      }).backgroundMusic,
+    ).toBe("BUILTIN");
   });
 
   it("supports disabling all scene transitions", () => {
