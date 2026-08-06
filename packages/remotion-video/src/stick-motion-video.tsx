@@ -399,7 +399,7 @@ const KnowledgeBoardChrome = ({
     subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
   );
   const sideCharGap = Math.round(sideTextFontSize * 0.65);
-  const rightSideCharGap = Math.round(sideTextFontSize * 0.35);
+  const rightSideCharGap = Math.round(sideTextFontSize * 0.5);
   const sideTextStyle: CSSProperties = {
     position: "absolute",
     top: "22%",
@@ -425,7 +425,7 @@ const KnowledgeBoardChrome = ({
     ...sideTextStyle,
     right: "3.125%",
     color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.8),
+    gap: sideTextFontSize,
   };
   const leftSideGroupStyle: CSSProperties = {
     display: "flex",
