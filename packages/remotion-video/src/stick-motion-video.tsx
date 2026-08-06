@@ -493,6 +493,28 @@ const KnowledgeBoardChrome = ({
           backgroundColor: "rgba(0,0,0,0.75)",
         }}
       />
+      <div
+        style={{
+          position: "absolute",
+          top: "8.1%",
+          left: "19.5%",
+          width: Math.max(6, Math.round(height * 0.008)),
+          height: Math.max(6, Math.round(height * 0.008)),
+          backgroundColor: "rgba(0,0,0,0.55)",
+          transform: "rotate(45deg)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          top: "8.1%",
+          right: "19.5%",
+          width: Math.max(6, Math.round(height * 0.008)),
+          height: Math.max(6, Math.round(height * 0.008)),
+          backgroundColor: "rgba(0,0,0,0.55)",
+          transform: "rotate(45deg)",
+        }}
+      />
       <div style={leftSideTextStyle}>
         {leftSideGroups.map((group, groupIndex) => (
           <div key={groupIndex} style={leftSideGroupStyle}>
