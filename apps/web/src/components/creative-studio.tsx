@@ -945,7 +945,7 @@ function TemplatePanel({
                 setVideoTemplate("KNOWLEDGE_BOARD");
                 setModalOpen(true);
               }}
-              className="absolute bottom-2 right-2 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white"
+              className="absolute right-2 top-2 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white"
             >
               编辑
             </button>
@@ -1031,8 +1031,8 @@ function TemplatePanel({
                 >
                   {templateHeader || "顶部栏目标题"}
                 </div>
-                <div className="absolute top-[13%] left-[20%] h-0.5 w-[6%] bg-black/70" />
-                <div className="absolute top-[13%] right-[20%] h-0.5 w-[6%] bg-black/70" />
+                <div className="absolute top-[8.3%] left-[8%] h-0.5 w-[6%] bg-black/70" />
+                <div className="absolute top-[8.3%] right-[8%] h-0.5 w-[6%] bg-black/70" />
                 <div
                   className="absolute top-[22%] bottom-[22%] left-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
                   style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
