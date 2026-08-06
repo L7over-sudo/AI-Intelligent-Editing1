@@ -57,7 +57,7 @@ try {
       position: "BOTTOM",
       outline: true,
       shadow: true,
-      outlineWidth: 5,
+      outlineWidth: 8,
       accentColor: "#19B9C6",
       leftVerticalText: "@杰研社进化论",
       rightVerticalText: "个人观点\n\n无不良引导",

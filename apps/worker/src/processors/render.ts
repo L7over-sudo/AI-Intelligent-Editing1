@@ -328,7 +328,7 @@ export function createRenderProcessor(
                   ? true
                   : subtitleStyle.outline,
               ...(knowledgeBoard
-                ? { outlineColor: "#000000", outlineWidth: 5 }
+                ? { outlineColor: "#000000", outlineWidth: 8 }
                 : {}),
               shadow:
                 resolvedSubtitleStyle?.shadow ??
@@ -459,7 +459,7 @@ export function createRenderProcessor(
             ? {
                 primaryColor: "#FFFFFF",
                 outlineColor: "#000000",
-                outlineWidth: 5,
+                outlineWidth: 8,
                 outline: true,
                 shadow: false,
               }
