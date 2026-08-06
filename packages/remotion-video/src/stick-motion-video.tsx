@@ -243,7 +243,7 @@ function subtitleAppearance(
   style: RemotionRenderInput["subtitleStyle"],
   fallbackColor: string,
 ): CSSProperties {
-  const outlineWidth = style.outline ? (style.outlineWidth ?? 3) : 0;
+  const outlineWidth = style.outline ? (style.outlineWidth ?? 5) : 0;
   return {
     color: style.primaryColor ?? fallbackColor,
     fontFamily:
