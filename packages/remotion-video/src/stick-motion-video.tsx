@@ -408,7 +408,7 @@ const KnowledgeBoardChrome = ({
     ...sideTextStyle,
     right: "3.125%",
     color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.25),
+    gap: Math.round(sideTextFontSize * 0.18),
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
@@ -473,7 +473,14 @@ const KnowledgeBoardChrome = ({
       </div>
       <div style={rightSideTextStyle}>
         {rightSideLines.map((character, index) => (
-          <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
+          <span
+            key={`${character}-${index}`}
+            style={{
+              height: character
+                ? sideTextFontSize
+                : Math.round(sideTextFontSize * 0.4),
+            }}
+          >
             {character}
           </span>
         ))}
