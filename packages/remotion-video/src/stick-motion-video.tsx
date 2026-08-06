@@ -476,8 +476,8 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "8.3%",
-          left: "8%",
+          top: "13%",
+          left: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
           backgroundColor: "rgba(0,0,0,0.75)",
@@ -486,8 +486,8 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "8.3%",
-          right: "8%",
+          top: "13%",
+          right: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
           backgroundColor: "rgba(0,0,0,0.75)",
