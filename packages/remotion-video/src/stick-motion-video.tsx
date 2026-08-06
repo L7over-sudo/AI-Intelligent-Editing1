@@ -376,7 +376,7 @@ const KnowledgeBoardChrome = ({
     subtitleStyle.fontSize,
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
-  const sideTextFontSize = Math.round(height * 0.048);
+  const sideTextFontSize = Math.round(height * 0.038);
   const leftSideLines = verticalTextLines(
     subtitleStyle.leftVerticalText ?? "@杰研社进化论",
   );
