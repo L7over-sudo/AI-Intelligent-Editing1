@@ -47,6 +47,21 @@ function verticalTextLines(value: string | undefined): string[] {
   });
 }
 
+function verticalTextGroups(value: string | undefined): string[][] {
+  const groups: string[][] = [];
+  let current: string[] = [];
+  for (const character of verticalTextLines(value)) {
+    if (character) {
+      current.push(character);
+    } else if (current.length > 0) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
 const RED_OPENING_COLOR = "#BE2426";
 
 function RedTextOpening({
@@ -377,12 +392,13 @@ const KnowledgeBoardChrome = ({
     Math.round(height * (height > width ? 0.038 : 0.055)),
   );
   const sideTextFontSize = Math.round(height * 0.038);
-  const leftSideLines = verticalTextLines(
+  const leftSideGroups = verticalTextGroups(
     subtitleStyle.leftVerticalText ?? "@杰研社进化论",
   );
-  const rightSideLines = verticalTextLines(
+  const rightSideGroups = verticalTextGroups(
     subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
   );
+  const sideCharGap = Math.round(sideTextFontSize * 0.65);
   const sideTextStyle: CSSProperties = {
     position: "absolute",
     top: "22%",
@@ -402,13 +418,19 @@ const KnowledgeBoardChrome = ({
     ...sideTextStyle,
     left: "3.125%",
     color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.65),
+    gap: sideCharGap,
   };
   const rightSideTextStyle: CSSProperties = {
     ...sideTextStyle,
     right: "3.125%",
     color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.18),
+    gap: Math.round(sideTextFontSize * 0.2),
+  };
+  const sideGroupStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: sideCharGap,
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
@@ -465,24 +487,31 @@ const KnowledgeBoardChrome = ({
         }}
       />
       <div style={leftSideTextStyle}>
-        {leftSideLines.map((character, index) => (
-          <span key={`${character}-${index}`} style={{ height: sideTextFontSize }}>
-            {character}
-          </span>
+        {leftSideGroups.map((group, groupIndex) => (
+          <div key={groupIndex} style={sideGroupStyle}>
+            {group.map((character, charIndex) => (
+              <span
+                key={`${character}-${charIndex}`}
+                style={{ height: sideTextFontSize }}
+              >
+                {character}
+              </span>
+            ))}
+          </div>
         ))}
       </div>
       <div style={rightSideTextStyle}>
-        {rightSideLines.map((character, index) => (
-          <span
-            key={`${character}-${index}`}
-            style={{
-              height: character
-                ? sideTextFontSize
-                : Math.round(sideTextFontSize * 0.4),
-            }}
-          >
-            {character}
-          </span>
+        {rightSideGroups.map((group, groupIndex) => (
+          <div key={groupIndex} style={sideGroupStyle}>
+            {group.map((character, charIndex) => (
+              <span
+                key={`${character}-${charIndex}`}
+                style={{ height: sideTextFontSize }}
+              >
+                {character}
+              </span>
+            ))}
+          </div>
         ))}
       </div>
       {activeCue && !scene.isTextOpening ? (
