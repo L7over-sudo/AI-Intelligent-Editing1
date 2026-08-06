@@ -918,17 +918,15 @@ function TemplatePanel({
           知识白板会缩小分镜图片，并为顶部标题和底部字幕保留独立区域。
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setVideoTemplate("KNOWLEDGE_BOARD");
-              setModalOpen(true);
-            }}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setVideoTemplate("KNOWLEDGE_BOARD")}
             className={`rounded-2xl border p-3 text-left transition ${
               videoTemplate === "KNOWLEDGE_BOARD"
                 ? "border-[#16bec8] bg-cyan-50"
                 : "border-black/[0.07] bg-white"
-            }`}
+            } relative cursor-pointer`}
           >
             <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10 bg-white">
               <span className="absolute inset-x-[14%] top-[8%] h-1 rounded bg-black/70" />
@@ -940,7 +938,18 @@ function TemplatePanel({
             <span className="mt-1 block text-[11px] text-black/40">
               图片缩小，字幕不遮挡画面
             </span>
-          </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setVideoTemplate("KNOWLEDGE_BOARD");
+                setModalOpen(true);
+              }}
+              className="absolute bottom-2 right-2 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white"
+            >
+              编辑
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setVideoTemplate("FULL_BLEED")}
@@ -1022,8 +1031,8 @@ function TemplatePanel({
                 >
                   {templateHeader || "顶部栏目标题"}
                 </div>
-                <div className="absolute top-[8.3%] left-[20%] h-0.5 w-[6%] bg-black/70" />
-                <div className="absolute top-[8.3%] right-[20%] h-0.5 w-[6%] bg-black/70" />
+                <div className="absolute top-[13%] left-[20%] h-0.5 w-[6%] bg-black/70" />
+                <div className="absolute top-[13%] right-[20%] h-0.5 w-[6%] bg-black/70" />
                 <div
                   className="absolute top-[22%] bottom-[22%] left-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
                   style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
@@ -1046,8 +1055,8 @@ function TemplatePanel({
                 </div>
                 <div className="absolute inset-x-0 bottom-[8%] flex justify-center">
                   <span
-                    className="px-2 text-sm font-bold text-white"
-                    style={{ WebkitTextStroke: "2px black" }}
+                    className="px-2 text-base font-black text-white"
+                    style={{ WebkitTextStroke: "3px black" }}
                   >
                     朗读字幕示例
                   </span>

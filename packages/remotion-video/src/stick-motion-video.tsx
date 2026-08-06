@@ -389,7 +389,7 @@ const KnowledgeBoardChrome = ({
   );
   const subtitleFontSize = Math.min(
     subtitleStyle.fontSize,
-    Math.round(height * (height > width ? 0.038 : 0.055)),
+    Math.round(height * (height > width ? 0.04 : 0.058)),
   );
   const sideTextFontSize = Math.round(height * 0.038);
   const leftSideGroups = verticalTextGroups(
@@ -476,7 +476,7 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "8.3%",
+          top: "13%",
           left: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
@@ -486,7 +486,7 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "8.3%",
+          top: "13%",
           right: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
