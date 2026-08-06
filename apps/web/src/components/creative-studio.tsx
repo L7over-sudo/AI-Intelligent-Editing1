@@ -86,6 +86,7 @@ export function CreativeStudio({
   const [rightVerticalText, setRightVerticalText] = useState(
     "个人观点\n\n无不良引导",
   );
+  const [mainTitle, setMainTitle] = useState("");
   const [music, setMusic] = useState("NONE");
   const [keepOriginal, setKeepOriginal] = useState(true);
   const [imageApiReady, setImageApiReady] = useState(false);
@@ -217,6 +218,7 @@ export function CreativeStudio({
             videoTemplate,
             headerText:
               videoTemplate === "KNOWLEDGE_BOARD" ? templateHeader.trim() : "",
+            mainTitle: mainTitle.trim(),
             leftVerticalText: leftVerticalText.trim(),
             rightVerticalText: rightVerticalText.trim(),
             transitionsEnabled,
@@ -489,6 +491,8 @@ export function CreativeStudio({
                 setLeftVerticalText={setLeftVerticalText}
                 rightVerticalText={rightVerticalText}
                 setRightVerticalText={setRightVerticalText}
+                mainTitle={mainTitle}
+                setMainTitle={setMainTitle}
               />
             )}
             {activeTab === "transition" && (
@@ -889,6 +893,8 @@ function TemplatePanel({
   setLeftVerticalText,
   rightVerticalText,
   setRightVerticalText,
+  mainTitle,
+  setMainTitle,
 }: {
   videoTemplate: VideoTemplate;
   setVideoTemplate: (value: VideoTemplate) => void;
@@ -900,6 +906,8 @@ function TemplatePanel({
   setLeftVerticalText: (value: string) => void;
   rightVerticalText: string;
   setRightVerticalText: (value: string) => void;
+  mainTitle: string;
+  setMainTitle: (value: string) => void;
 }) {
   return (
     <div className="grid gap-6">
@@ -948,16 +956,28 @@ function TemplatePanel({
           </button>
         </div>
         {videoTemplate === "KNOWLEDGE_BOARD" && (
-          <label className="mt-4 grid gap-2 text-sm font-bold">
-            顶部栏目标题
-            <input
-              value={templateHeader}
-              onChange={(event) => setTemplateHeader(event.target.value)}
-              maxLength={120}
-              placeholder="例如：— 思维提升 | 表达沟通 | 职场成长 —"
-              className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-            />
-          </label>
+          <div className="mt-4 grid gap-3">
+            <label className="grid gap-2 text-sm font-bold">
+              主标题
+              <input
+                value={mainTitle}
+                onChange={(event) => setMainTitle(event.target.value)}
+                maxLength={60}
+                placeholder="例如：自我突破"
+                className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              顶部栏目标题
+              <input
+                value={templateHeader}
+                onChange={(event) => setTemplateHeader(event.target.value)}
+                maxLength={120}
+                placeholder="例如：思维提升 | 表达沟通 | 职场成长"
+                className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+              />
+            </label>
+          </div>
         )}
       </section>
 

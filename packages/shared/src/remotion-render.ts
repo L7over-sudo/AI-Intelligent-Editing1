@@ -89,6 +89,7 @@ export const remotionRenderInputSchema = z
           .optional(),
         leftVerticalText: z.string().trim().max(120).optional(),
         rightVerticalText: z.string().trim().max(160).optional(),
+        mainTitle: z.string().trim().max(60).optional(),
       })
       .strict(),
     watermark: z.string().trim().max(80).default(""),

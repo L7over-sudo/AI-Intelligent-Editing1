@@ -31,6 +31,7 @@ describe("createProjectSchema duration policy", () => {
         templateId: "BUILTIN",
         videoTemplate: "FULL_BLEED",
         headerText: "",
+        mainTitle: "",
         leftVerticalText: "",
         rightVerticalText: "",
         transitionsEnabled: true,
@@ -81,11 +82,13 @@ describe("createProjectSchema duration policy", () => {
           ...projectInput.subtitleStyle,
           leftVerticalText: "@杰研社进化论",
           rightVerticalText: "个人观点\n\n无不良引导",
+          mainTitle: "自我突破",
         },
       }).subtitleStyle,
     ).toMatchObject({
       leftVerticalText: "@杰研社进化论",
       rightVerticalText: "个人观点\n\n无不良引导",
+      mainTitle: "自我突破",
     });
   });
 

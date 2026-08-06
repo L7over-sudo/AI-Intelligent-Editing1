@@ -455,6 +455,10 @@ export function createRenderProcessor(
             (resolvedSubtitleStyle as { rightVerticalText?: string } | undefined)
               ?.rightVerticalText ??
             subtitleStyle.rightVerticalText,
+          mainTitle:
+            (resolvedSubtitleStyle as { mainTitle?: string } | undefined)
+              ?.mainTitle ??
+            subtitleStyle.mainTitle,
           ...(knowledgeBoard
             ? {
                 primaryColor: "#FFFFFF",

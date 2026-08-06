@@ -32,6 +32,7 @@ export const subtitleStyleSchema = z.preprocess(
         .default("BUILTIN"),
       videoTemplate: videoTemplateSchema.default("FULL_BLEED"),
       headerText: z.string().trim().max(120).default(""),
+      mainTitle: z.string().trim().max(60).default(""),
       leftVerticalText: z.string().trim().max(120).default(""),
       rightVerticalText: z.string().trim().max(160).default(""),
       transitionsEnabled: z.boolean().default(true),
