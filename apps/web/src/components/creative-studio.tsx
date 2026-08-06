@@ -909,6 +909,7 @@ function TemplatePanel({
   mainTitle: string;
   setMainTitle: (value: string) => void;
 }) {
+  const [modalOpen, setModalOpen] = useState(false);
   return (
     <div className="grid gap-6">
       <section>
@@ -919,7 +920,10 @@ function TemplatePanel({
         <div className="mt-3 grid grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => setVideoTemplate("KNOWLEDGE_BOARD")}
+            onClick={() => {
+              setVideoTemplate("KNOWLEDGE_BOARD");
+              setModalOpen(true);
+            }}
             className={`rounded-2xl border p-3 text-left transition ${
               videoTemplate === "KNOWLEDGE_BOARD"
                 ? "border-[#16bec8] bg-cyan-50"
@@ -955,62 +959,7 @@ function TemplatePanel({
             </span>
           </button>
         </div>
-        {videoTemplate === "KNOWLEDGE_BOARD" && (
-          <div className="mt-4 grid gap-3">
-            <label className="grid gap-2 text-sm font-bold">
-              主标题
-              <input
-                value={mainTitle}
-                onChange={(event) => setMainTitle(event.target.value)}
-                maxLength={60}
-                placeholder="例如：自我突破"
-                className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-bold">
-              顶部栏目标题
-              <input
-                value={templateHeader}
-                onChange={(event) => setTemplateHeader(event.target.value)}
-                maxLength={120}
-                placeholder="例如：思维提升 | 表达沟通 | 职场成长"
-                className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-              />
-            </label>
-          </div>
-        )}
       </section>
-
-      {videoTemplate === "KNOWLEDGE_BOARD" && (
-        <section>
-          <h3 className="text-sm font-black">两侧竖排文字</h3>
-          <p className="mt-1 text-xs leading-5 text-black/40">
-            每行一个字，空行可以留间隔；留空就不显示。
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <label className="grid gap-2 text-sm font-bold">
-              左侧
-              <textarea
-                value={leftVerticalText}
-                onChange={(event) => setLeftVerticalText(event.target.value)}
-                rows={8}
-                placeholder="@杰研社进化论"
-                className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-bold">
-              右侧
-              <textarea
-                value={rightVerticalText}
-                onChange={(event) => setRightVerticalText(event.target.value)}
-                rows={8}
-                placeholder={"个人观点\n\n无不良引导"}
-                className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-              />
-            </label>
-          </div>
-        </section>
-      )}
 
       <section>
         <h3 className="text-sm font-black">开场模板</h3>
@@ -1042,6 +991,117 @@ function TemplatePanel({
           </button>
         </div>
       </section>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black">知识白板模板</h3>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="rounded-lg bg-black/5 px-3 py-2 text-sm font-bold"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-5 lg:grid-cols-2">
+              <div className="relative aspect-video overflow-hidden rounded-xl border border-black/10 bg-white">
+                {mainTitle.trim() ? (
+                  <div
+                    className="absolute inset-x-[5%] top-[3%] flex h-[7%] items-center justify-center text-xl font-black text-black"
+                    style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
+                  >
+                    {mainTitle}
+                  </div>
+                ) : null}
+                <div
+                  className="absolute inset-x-[5%] top-[6.5%] flex h-[5%] items-center justify-center text-[11px] font-bold text-black/80"
+                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
+                >
+                  {templateHeader || "顶部栏目标题"}
+                </div>
+                <div className="absolute top-[8.3%] left-[20%] h-0.5 w-[6%] bg-black/70" />
+                <div className="absolute top-[8.3%] right-[20%] h-0.5 w-[6%] bg-black/70" />
+                <div
+                  className="absolute top-[22%] bottom-[22%] left-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
+                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
+                >
+                  {Array.from(leftVerticalText.replace(/\n/gu, "")).map(
+                    (character, index) => (
+                      <span key={`left-${index}`}>{character}</span>
+                    ),
+                  )}
+                </div>
+                <div
+                  className="absolute top-[22%] bottom-[22%] right-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
+                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
+                >
+                  {Array.from(rightVerticalText.replace(/\n/gu, "")).map(
+                    (character, index) => (
+                      <span key={`right-${index}`}>{character}</span>
+                    ),
+                  )}
+                </div>
+                <div className="absolute inset-x-0 bottom-[8%] flex justify-center">
+                  <span
+                    className="px-2 text-sm font-bold text-white"
+                    style={{ WebkitTextStroke: "2px black" }}
+                  >
+                    朗读字幕示例
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                <label className="grid gap-1.5 text-sm font-bold">
+                  主标题
+                  <input
+                    value={mainTitle}
+                    onChange={(event) => setMainTitle(event.target.value)}
+                    maxLength={60}
+                    placeholder="例如：自我突破"
+                    className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-bold">
+                  顶部栏目标题
+                  <input
+                    value={templateHeader}
+                    onChange={(event) => setTemplateHeader(event.target.value)}
+                    maxLength={120}
+                    placeholder="例如：思维提升 | 表达沟通 | 职场成长"
+                    className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-bold">
+                  左侧竖排文字
+                  <textarea
+                    value={leftVerticalText}
+                    onChange={(event) => setLeftVerticalText(event.target.value)}
+                    rows={5}
+                    placeholder="@杰研社进化论"
+                    className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-bold">
+                  右侧竖排文字
+                  <textarea
+                    value={rightVerticalText}
+                    onChange={(event) =>
+                      setRightVerticalText(event.target.value)
+                    }
+                    rows={5}
+                    placeholder={"个人观点\n\n无不良引导"}
+                    className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
