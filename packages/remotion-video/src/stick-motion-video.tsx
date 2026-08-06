@@ -424,7 +424,7 @@ const KnowledgeBoardChrome = ({
     ...sideTextStyle,
     right: "3.125%",
     color: "#CCCCCC",
-    gap: Math.round(sideTextFontSize * 0.2),
+    gap: Math.round(sideTextFontSize * 0.45),
   };
   const sideGroupStyle: CSSProperties = {
     display: "flex",
