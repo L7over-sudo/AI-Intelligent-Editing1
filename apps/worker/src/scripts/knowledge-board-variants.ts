@@ -64,7 +64,6 @@ try {
         shadow: true,
         outlineWidth: 8,
         accentColor: "#19B9C6",
-        mainTitle: "自我突破",
         leftVerticalText: "@杰研社进化论",
         rightVerticalText: "个人观点\n\n无不良引导",
       },

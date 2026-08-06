@@ -365,13 +365,11 @@ const KnowledgeBoardChrome = ({
   subtitleStyle,
   watermark,
   headerText,
-  cornerVariant,
 }: {
   scene: Scene;
   subtitleStyle: RemotionRenderInput["subtitleStyle"];
   watermark: string;
   headerText: string;
-  cornerVariant: RemotionRenderInput["cornerVariant"];
 }) => {
   const frame = useCurrentFrame();
   const { width, height, fps } = useVideoConfig();
@@ -380,10 +378,6 @@ const KnowledgeBoardChrome = ({
     (cue) => currentMs >= cue.startMs && currentMs < cue.endMs,
   );
   const layout = getKnowledgeBoardLayout(width, height);
-  const mainTitle = subtitleStyle.mainTitle?.trim() ?? "";
-  const headerTop = mainTitle ? "12%" : "6.5%";
-  const dashTop = mainTitle ? "14.5%" : "8.3%";
-  const cornerTop = mainTitle ? "12%" : "6%";
   const headerFontSize = Math.max(
     18,
     Math.min(
@@ -447,33 +441,11 @@ const KnowledgeBoardChrome = ({
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
-      {mainTitle ? (
-        <div
-          style={{
-            position: "absolute",
-            top: "3.5%",
-            left: "5%",
-            right: "5%",
-            height: "7%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#090909",
-            fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
-            fontSize: Math.round(height * 0.052),
-            fontWeight: 900,
-            letterSpacing: "0.06em",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {mainTitle}
-        </div>
-      ) : null}
       {headerText ? (
         <div
           style={{
             position: "absolute",
-            top: headerTop,
+            top: "6.5%",
             left: "5%",
             right: "5%",
             height: "5%",
@@ -504,7 +476,7 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: dashTop,
+          top: "8.3%",
           left: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
@@ -514,115 +486,13 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: dashTop,
+          top: "8.3%",
           right: "21.3%",
           width: Math.round(width * 0.022),
           height: Math.max(3, Math.round(height * 0.004)),
           backgroundColor: "rgba(0,0,0,0.75)",
         }}
       />
-      {(!cornerVariant || cornerVariant === "BRACKET") && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              left: "2.5%",
-              top: cornerTop,
-              width: Math.round(width * 0.045),
-              height: Math.round(height * 0.06),
-              borderLeft: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-              borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              right: "2.5%",
-              top: cornerTop,
-              width: Math.round(width * 0.045),
-              height: Math.round(height * 0.06),
-              borderRight: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-              borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-            }}
-          />
-        </>
-      )}
-      {cornerVariant === "DIAMOND" && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              left: "3%",
-              top: dashTop,
-              width: Math.max(8, Math.round(height * 0.01)),
-              height: Math.max(8, Math.round(height * 0.01)),
-              backgroundColor: "rgba(0,0,0,0.55)",
-              transform: "rotate(45deg)",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              right: "3%",
-              top: dashTop,
-              width: Math.max(8, Math.round(height * 0.01)),
-              height: Math.max(8, Math.round(height * 0.01)),
-              backgroundColor: "rgba(0,0,0,0.55)",
-              transform: "rotate(45deg)",
-            }}
-          />
-        </>
-      )}
-      {cornerVariant === "DOTS" && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              left: "3.2%",
-              top: dashTop,
-              width: Math.max(8, Math.round(height * 0.009)),
-              height: Math.max(8, Math.round(height * 0.009)),
-              borderRadius: "50%",
-              backgroundColor: "rgba(0,0,0,0.55)",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              right: "3.2%",
-              top: dashTop,
-              width: Math.max(8, Math.round(height * 0.009)),
-              height: Math.max(8, Math.round(height * 0.009)),
-              borderRadius: "50%",
-              backgroundColor: "rgba(0,0,0,0.55)",
-            }}
-          />
-        </>
-      )}
-      {cornerVariant === "LINES" && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              left: "3.2%",
-              top: dashTop,
-              width: Math.max(3, Math.round(height * 0.003)),
-              height: Math.round(height * 0.05),
-              backgroundColor: "rgba(0,0,0,0.4)",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              right: "3.2%",
-              top: dashTop,
-              width: Math.max(3, Math.round(height * 0.003)),
-              height: Math.round(height * 0.05),
-              backgroundColor: "rgba(0,0,0,0.4)",
-            }}
-          />
-        </>
-      )}
       <div style={leftSideTextStyle}>
         {leftSideGroups.map((group, groupIndex) => (
           <div key={groupIndex} style={leftSideGroupStyle}>
@@ -1014,7 +884,6 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
             subtitleStyle={input.subtitleStyle}
             watermark={input.watermark}
             headerText={input.headerText}
-            cornerVariant={input.cornerVariant}
           />
         </Sequence>,
       );
