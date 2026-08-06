@@ -399,6 +399,7 @@ const KnowledgeBoardChrome = ({
     subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
   );
   const sideCharGap = Math.round(sideTextFontSize * 0.65);
+  const rightSideCharGap = Math.round(sideTextFontSize * 0.35);
   const sideTextStyle: CSSProperties = {
     position: "absolute",
     top: "22%",
@@ -426,11 +427,17 @@ const KnowledgeBoardChrome = ({
     color: "#CCCCCC",
     gap: Math.round(sideTextFontSize * 0.8),
   };
-  const sideGroupStyle: CSSProperties = {
+  const leftSideGroupStyle: CSSProperties = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     gap: sideCharGap,
+  };
+  const rightSideGroupStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: rightSideCharGap,
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
@@ -488,7 +495,7 @@ const KnowledgeBoardChrome = ({
       />
       <div style={leftSideTextStyle}>
         {leftSideGroups.map((group, groupIndex) => (
-          <div key={groupIndex} style={sideGroupStyle}>
+          <div key={groupIndex} style={leftSideGroupStyle}>
             {group.map((character, charIndex) => (
               <span
                 key={`${character}-${charIndex}`}
@@ -502,7 +509,7 @@ const KnowledgeBoardChrome = ({
       </div>
       <div style={rightSideTextStyle}>
         {rightSideGroups.map((group, groupIndex) => (
-          <div key={groupIndex} style={sideGroupStyle}>
+          <div key={groupIndex} style={rightSideGroupStyle}>
             {group.map((character, charIndex) => (
               <span
                 key={`${character}-${charIndex}`}
