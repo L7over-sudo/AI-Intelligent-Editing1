@@ -515,6 +515,28 @@ const KnowledgeBoardChrome = ({
           transform: "rotate(45deg)",
         }}
       />
+      <div
+        style={{
+          position: "absolute",
+          left: "2.5%",
+          top: "6%",
+          width: Math.round(width * 0.045),
+          height: Math.round(height * 0.06),
+          borderLeft: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+          borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          right: "2.5%",
+          top: "6%",
+          width: Math.round(width * 0.045),
+          height: Math.round(height * 0.06),
+          borderRight: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+          borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+        }}
+      />
       <div style={leftSideTextStyle}>
         {leftSideGroups.map((group, groupIndex) => (
           <div key={groupIndex} style={leftSideGroupStyle}>
