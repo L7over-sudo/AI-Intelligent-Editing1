@@ -13,6 +13,7 @@
     "test:remotion-smoke": "tsx src/scripts/remotion-smoke.ts",
     "test:opening-template-smoke": "tsx src/scripts/opening-template-smoke.ts",
     "preview:knowledge-board": "tsx src/scripts/knowledge-board-preview.ts",
+    "preview:knowledge-board-variants": "tsx src/scripts/knowledge-board-variants.ts",
     "music:attach": "tsx src/scripts/attach-background-music.ts",
     "sfx:backfill": "tsx src/scripts/backfill-sound-effects.ts",
     "sfx:index": "tsx src/scripts/index-external-sound-effects.ts",

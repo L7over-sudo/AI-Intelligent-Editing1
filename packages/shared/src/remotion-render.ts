@@ -56,6 +56,9 @@ export const remotionRenderInputSchema = z
     backgroundMusicVolume: z.number().min(0).max(1).default(0.18),
     videoTemplate: videoTemplateSchema.default("FULL_BLEED"),
     headerText: z.string().trim().max(120).default(""),
+    cornerVariant: z
+      .enum(["BRACKET", "DIAMOND", "DOTS", "LINES"])
+      .optional(),
     subtitleStyle: z
       .object({
         fontSize: z.number().int().min(28).max(96),

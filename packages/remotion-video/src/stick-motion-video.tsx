@@ -365,11 +365,13 @@ const KnowledgeBoardChrome = ({
   subtitleStyle,
   watermark,
   headerText,
+  cornerVariant,
 }: {
   scene: Scene;
   subtitleStyle: RemotionRenderInput["subtitleStyle"];
   watermark: string;
   headerText: string;
+  cornerVariant: RemotionRenderInput["cornerVariant"];
 }) => {
   const frame = useCurrentFrame();
   const { width, height, fps } = useVideoConfig();
@@ -493,50 +495,108 @@ const KnowledgeBoardChrome = ({
           backgroundColor: "rgba(0,0,0,0.75)",
         }}
       />
-      <div
-        style={{
-          position: "absolute",
-          top: "8.1%",
-          left: "19.5%",
-          width: Math.max(6, Math.round(height * 0.008)),
-          height: Math.max(6, Math.round(height * 0.008)),
-          backgroundColor: "rgba(0,0,0,0.55)",
-          transform: "rotate(45deg)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: "8.1%",
-          right: "19.5%",
-          width: Math.max(6, Math.round(height * 0.008)),
-          height: Math.max(6, Math.round(height * 0.008)),
-          backgroundColor: "rgba(0,0,0,0.55)",
-          transform: "rotate(45deg)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "2.5%",
-          top: "6%",
-          width: Math.round(width * 0.045),
-          height: Math.round(height * 0.06),
-          borderLeft: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-          borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          right: "2.5%",
-          top: "6%",
-          width: Math.round(width * 0.045),
-          height: Math.round(height * 0.06),
-          borderRight: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-          borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
-        }}
-      />
+      {(!cornerVariant || cornerVariant === "BRACKET") && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "2.5%",
+              top: "6%",
+              width: Math.round(width * 0.045),
+              height: Math.round(height * 0.06),
+              borderLeft: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+              borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              right: "2.5%",
+              top: "6%",
+              width: Math.round(width * 0.045),
+              height: Math.round(height * 0.06),
+              borderRight: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+              borderTop: `${Math.max(2, Math.round(height * 0.0025))}px solid rgba(0,0,0,0.4)`,
+            }}
+          />
+        </>
+      )}
+      {cornerVariant === "DIAMOND" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "3%",
+              top: "8.3%",
+              width: Math.max(8, Math.round(height * 0.01)),
+              height: Math.max(8, Math.round(height * 0.01)),
+              backgroundColor: "rgba(0,0,0,0.55)",
+              transform: "rotate(45deg)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              right: "3%",
+              top: "8.3%",
+              width: Math.max(8, Math.round(height * 0.01)),
+              height: Math.max(8, Math.round(height * 0.01)),
+              backgroundColor: "rgba(0,0,0,0.55)",
+              transform: "rotate(45deg)",
+            }}
+          />
+        </>
+      )}
+      {cornerVariant === "DOTS" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "3.2%",
+              top: "8.6%",
+              width: Math.max(8, Math.round(height * 0.009)),
+              height: Math.max(8, Math.round(height * 0.009)),
+              borderRadius: "50%",
+              backgroundColor: "rgba(0,0,0,0.55)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              right: "3.2%",
+              top: "8.6%",
+              width: Math.max(8, Math.round(height * 0.009)),
+              height: Math.max(8, Math.round(height * 0.009)),
+              borderRadius: "50%",
+              backgroundColor: "rgba(0,0,0,0.55)",
+            }}
+          />
+        </>
+      )}
+      {cornerVariant === "LINES" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "3.2%",
+              top: "7%",
+              width: Math.max(3, Math.round(height * 0.003)),
+              height: Math.round(height * 0.05),
+              backgroundColor: "rgba(0,0,0,0.4)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              right: "3.2%",
+              top: "7%",
+              width: Math.max(3, Math.round(height * 0.003)),
+              height: Math.round(height * 0.05),
+              backgroundColor: "rgba(0,0,0,0.4)",
+            }}
+          />
+        </>
+      )}
       <div style={leftSideTextStyle}>
         {leftSideGroups.map((group, groupIndex) => (
           <div key={groupIndex} style={leftSideGroupStyle}>
@@ -928,6 +988,7 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
             subtitleStyle={input.subtitleStyle}
             watermark={input.watermark}
             headerText={input.headerText}
+            cornerVariant={input.cornerVariant}
           />
         </Sequence>,
       );
