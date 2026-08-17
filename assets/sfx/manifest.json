@@ -1,16 +1,52 @@
 {
-  "version": 1,
+  "version": 2,
   "license": "user-provided; usage rights asserted by the local library owner",
-  "source": "Built-in StickMotion SFX synthesized with FFmpeg plus a user-provided water drop for the opening template.",
+  "source": "Built-in StickMotion SFX synthesized with FFmpeg.",
   "assets": [
-    { "tag": "pop", "file": "pop.wav", "recommendedGainDb": -8 },
-    { "tag": "click", "file": "click.wav", "recommendedGainDb": -10 },
-    { "tag": "whoosh", "file": "whoosh.wav", "recommendedGainDb": -10 },
-    { "tag": "success", "file": "success.wav", "recommendedGainDb": -8 },
-    { "tag": "error", "file": "error.wav", "recommendedGainDb": -8 },
-    { "tag": "typing", "file": "typing.wav", "recommendedGainDb": -12 },
-    { "tag": "clock", "file": "clock.wav", "recommendedGainDb": -12 },
-    { "tag": "impact", "file": "impact.wav", "recommendedGainDb": -8 },
-    { "tag": "water", "file": "water-drop.wav", "recommendedGainDb": -4 }
+    {
+      "tag": "pop",
+      "file": "pop.wav",
+      "recommendedGainDb": -8
+    },
+    {
+      "tag": "click",
+      "file": "click.wav",
+      "recommendedGainDb": -10
+    },
+    {
+      "tag": "whoosh",
+      "file": "whoosh.wav",
+      "recommendedGainDb": -10
+    },
+    {
+      "tag": "success",
+      "file": "success.wav",
+      "recommendedGainDb": -8
+    },
+    {
+      "tag": "error",
+      "file": "error.wav",
+      "recommendedGainDb": -8
+    },
+    {
+      "tag": "typing",
+      "file": "typing.wav",
+      "recommendedGainDb": -12
+    },
+    {
+      "tag": "clock",
+      "file": "clock.wav",
+      "recommendedGainDb": -12
+    },
+    {
+      "tag": "impact",
+      "file": "impact.wav",
+      "recommendedGainDb": -8
+    },
+    {
+      "tag": "water",
+      "file": "water-drop.wav",
+      "recommendedGainDb": -4
+    }
   ]
 }

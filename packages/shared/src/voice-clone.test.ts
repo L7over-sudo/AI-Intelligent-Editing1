@@ -6,7 +6,7 @@ import {
 } from "./voice-clone";
 
 describe("voice clone schemas", () => {
-  it("accepts only a loopback VoxCPM2 service", () => {
+  it("accepts only a loopback IndexTTS2 service", () => {
     expect(localVoiceServiceUrlSchema.parse("http://127.0.0.1:9880")).toBe(
       "http://127.0.0.1:9880",
     );
@@ -25,8 +25,6 @@ describe("voice clone schemas", () => {
         fileName: "voice.wav",
         contentType: "audio/wav",
         byteSize: 1024,
-        promptText: "这是参考音频里说出的原文。",
-        promptLanguage: "zh",
         serviceUrl: "http://localhost:9880",
         consentConfirmed: false,
       }),
@@ -40,11 +38,10 @@ describe("voice clone schemas", () => {
         fileName: "one-minute.wav",
         contentType: "audio/wav",
         byteSize: 50 * 1024 * 1024,
-        promptText: "",
-        promptLanguage: "zh",
         serviceUrl: "http://127.0.0.1:9880",
         consentConfirmed: true,
       }).byteSize,
     ).toBe(50 * 1024 * 1024);
   });
+
 });

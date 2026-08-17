@@ -1,5 +1,6 @@
 ﻿import {
   applyNarrationTiming,
+  normalizeCoverCopy,
   storyboardSchema,
   type Storyboard,
   type StoryboardScene,
@@ -11,7 +12,7 @@ import type {
 } from "./storyboard-provider";
 
 const MAX_SCHEMA_SCENE_CHARACTERS = 1_200;
-const TARGET_SCENE_CHARACTERS = 32;
+const TARGET_SCENE_CHARACTERS = 28;
 const MIN_TRAILING_SCENE_CHARACTERS = 8;
 const sentenceBoundaryPattern = /[。.!！？?；;…]/u;
 const clauseBoundaryPattern = /[，,：:、]/u;
@@ -64,10 +65,7 @@ function splitLongSentence(sentence: string): string[] {
   let buffer = "";
   for (const piece of pieces) {
     const candidate = `${buffer}${piece}`.trim();
-    if (
-      buffer &&
-      Array.from(candidate).length > TARGET_SCENE_CHARACTERS
-    ) {
+    if (buffer && Array.from(candidate).length > TARGET_SCENE_CHARACTERS) {
       scenes.push(buffer.trim());
       buffer = piece;
     } else {
@@ -83,7 +81,7 @@ function splitLongSentence(sentence: string): string[] {
     previous &&
     Array.from(trailing).length < MIN_TRAILING_SCENE_CHARACTERS &&
     Array.from(`${previous}${trailing}`).length <=
-      TARGET_SCENE_CHARACTERS + MIN_TRAILING_SCENE_CHARACTERS
+      TARGET_SCENE_CHARACTERS
   ) {
     scenes.splice(-2, 2, `${previous}${trailing}`);
   }
@@ -168,15 +166,15 @@ const supportingAssets = [
 const animations: StoryboardScene["animation"][] = [
   { type: "FADE", direction: "IN", intensity: 0.35 },
   { type: "PAN", direction: "RIGHT", intensity: 0.3 },
-  { type: "ZOOM", direction: "IN", intensity: 0.25 },
+  { type: "FADE", direction: "IN", intensity: 0.3 },
   { type: "SLIDE", direction: "LEFT", intensity: 0.3 },
 ];
 
 const transitions: StoryboardScene["transition"]["type"][] = [
   "FADE",
   "DISSOLVE",
-  "PUSH",
-  "ZOOM",
+  "FADE",
+  "DISSOLVE",
 ];
 
 function makeScene(
@@ -184,17 +182,21 @@ function makeScene(
   index: number,
   imagePrompt: string,
   aspectRatio: StoryboardRequest["aspectRatio"],
+  videoTemplate: StoryboardRequest["videoTemplate"],
 ): StoryboardScene {
   const excerpt = Array.from(narration).slice(0, 180).join("");
   const globalPrompt = imagePrompt.trim() || "根据当前分镜内容生成画面";
   const ratioHint =
-    aspectRatio === "PORTRAIT" ? "9:16 竖屏构图" : "16:9 横屏构图";
+    videoTemplate === "KNOWLEDGE_BOARD"
+      ? "21:9 超宽横屏构图"
+      : aspectRatio === "PORTRAIT"
+        ? "9:16 竖屏构图"
+        : "16:9 横屏构图";
   // The scene content must always reach the image model, so it is placed first
   // and the user’s (potentially very long) global style template is trimmed to
   // fit. Truncating from the end previously cut the scene excerpt away and
   // produced identical, scene-agnostic prompts for every shot.
-  const sceneInstruction =
-    `场景内容仅用于理解画面，不要把分镜原文直接显示在画面中：${excerpt}`;
+  const sceneInstruction = `场景内容仅用于理解画面，不要把分镜原文直接显示在画面中：${excerpt}`;
   // No character cap: keep the full scene content and the user's full image
   // prompt template so scene-specific details always reach the image model.
   const visualPrompt = `${sceneInstruction}。${ratioHint}。${globalPrompt}。不要添加 Logo 或水印。`;
@@ -230,7 +232,6 @@ function makeScene(
       duration: index === 0 ? 0.25 : 0.45,
     },
     soundEffects: [],
-    isTextOpening: false,
   };
 }
 
@@ -243,13 +244,22 @@ export class LocalStoryboardProvider implements StoryboardProvider {
     const summary = Array.from(request.sourceText.trim())
       .slice(0, 160)
       .join("");
+    const coverCopy = normalizeCoverCopy({ sourceText: request.sourceText });
 
     return applyNarrationTiming(
       storyboardSchema.parse({
         title: title || "未命名视频",
         summary: summary || "本地生成的视频分镜",
+        coverTitle: coverCopy.title,
+        coverSubtitle: coverCopy.subtitle,
         scenes: chunks.map((narration, index) =>
-          makeScene(narration, index, request.imagePrompt, request.aspectRatio),
+          makeScene(
+            narration,
+            index,
+            request.imagePrompt,
+            request.aspectRatio,
+            request.videoTemplate,
+          ),
         ),
       }),
     );

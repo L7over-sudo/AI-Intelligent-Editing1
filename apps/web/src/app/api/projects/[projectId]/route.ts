@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { getPrisma } from "@stickmotion/db";
+import { voiceCloneReferenceMetadataSchema } from "@stickmotion/shared";
 import { LocalObjectStore } from "@stickmotion/storage";
 
 import { getCurrentUser } from "@/server/auth";
 import { apiError } from "@/server/http";
 import { retainedProfileAssetObjectKey } from "@/server/profile-asset-retention";
+import { projectUpdateInputSchema } from "@/server/project-update";
 
 export async function GET(
   _request: Request,
@@ -29,10 +31,13 @@ export async function GET(
             },
           },
         },
-        jobs: { orderBy: { createdAt: "desc" }, take: 100 },
+        jobs: { orderBy: { createdAt: "desc" }, take: 500 },
         renderOutputs: {
           orderBy: { createdAt: "desc" },
-          take: 5,
+          take: 50,
+          include: {
+            asset: { select: { objectKey: true, source: true } },
+          },
         },
       },
     });
@@ -131,6 +136,80 @@ export async function DELETE(
       deleted: true,
       localFilesDeleted: true,
     });
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ projectId: string }> },
+) {
+  try {
+    const { projectId } = await context.params;
+    const input = projectUpdateInputSchema.parse(await request.json());
+    const user = await getCurrentUser();
+    const prisma = getPrisma();
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!project) throw new Error("PROJECT_NOT_FOUND");
+    if ("title" in input) {
+      const updated = await prisma.project.update({
+        where: { id: project.id },
+        data: { title: input.title },
+      });
+      return NextResponse.json({ project: updated });
+    }
+
+    const activeMediaJob = await prisma.generationJob.findFirst({
+      where: {
+        projectId: project.id,
+        type: { in: ["VOICE", "AUDIO_MIX", "RENDER"] },
+        status: { in: ["QUEUED", "RUNNING", "RETRYING"] },
+      },
+      select: { id: true },
+    });
+    if (activeMediaJob) throw new Error("PROJECT_BUSY");
+
+    if ("narrationVolume" in input) {
+      const updated = await prisma.project.update({
+        where: { id: project.id },
+        data: {
+          narrationVolume: input.narrationVolume,
+          backgroundMusicVolume: input.backgroundMusicVolume,
+        },
+      });
+      return NextResponse.json({ project: updated });
+    }
+
+    if (input.voiceProfileId) {
+      const profile = await prisma.voiceProfile.findFirst({
+        where: { id: input.voiceProfileId, ownerId: user.id },
+        include: { asset: true },
+      });
+      if (!profile) throw new Error("VOICE_PROFILE_NOT_FOUND");
+
+      const metadata = voiceCloneReferenceMetadataSchema.safeParse(
+        profile.asset.metadata,
+      );
+      if (!metadata.success) throw new Error("VOICE_PROFILE_INVALID");
+
+      const expectedStyle = "indextts2";
+      if (input.voiceStyle !== expectedStyle) {
+        throw new Error("VOICE_PROFILE_PROVIDER_MISMATCH");
+      }
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: project.id },
+      data: {
+        voiceStyle: input.voiceStyle,
+        voiceProfileId: input.voiceProfileId,
+      },
+    });
+    return NextResponse.json({ project: updated });
   } catch (error) {
     return apiError(error);
   }

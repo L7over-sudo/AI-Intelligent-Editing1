@@ -9,15 +9,18 @@ import { getPrisma } from "@stickmotion/db";
 import {
   alignTextToDuration,
   buildFfmpegRenderCommand,
+  concatenatePcmWav,
   cuesToAss,
+  interSceneNarrationPauseMs,
+  pcmWavTrailingSilenceMs,
+  slicePcmWav,
   type FfmpegRenderPlan,
   type SubtitleCueInput,
+  wavDurationMs,
 } from "@stickmotion/media";
 import { renderSvgScene } from "@stickmotion/scene-engine";
 import {
   applyTransitionPreference,
-  animationSchema,
-  formatTextOpening,
   renderGenerationInputSchema,
   subtitleStyleSchema,
   templateElementSchema,
@@ -26,18 +29,34 @@ import {
   type RenderGenerationInput,
 } from "@stickmotion/shared";
 
+function firstSentenceOf(text: string): string {
+  const firstLine = text
+    .trim()
+    .split(/\r?\n/u)
+    .find((line) => line.trim());
+  const source = (firstLine ?? text).trim();
+  return source.split(/[。！？!?]/u)[0]?.trim() || source;
+}
+
 import { runFfmpeg } from "../services/ffmpeg-runner";
+import { probeMediaInfo } from "../services/media-probe";
 import {
   runRemotion,
   type RemotionRenderer,
 } from "../services/remotion-renderer";
 import { synchronizeProjectSoundEffects } from "../services/sound-effect-library";
+import { generateProjectCoversAfterRender } from "../services/project-cover-generator";
+import { allowsTemplateSafeFfmpegFallback } from "../services/render-fallback-policy";
 import { findSubtitleTemplate } from "../services/subtitle-template-library";
 import {
   createKnowledgeBoardFrame,
   prepareKnowledgeBoardImage,
 } from "../services/video-template-frame";
 import { LocalObjectStore } from "@stickmotion/storage";
+import { createMonotonicProgressReporter } from "../services/monotonic-progress";
+import { prepareStoredSubtitleCues } from "../services/subtitle-timing";
+import { resolveContinuousNarrationMetadata } from "../services/continuous-narration-asset";
+import { resolveRenderAnimation } from "./render-animation";
 
 const cleanError = (error: unknown) =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
@@ -48,6 +67,25 @@ function mediaExtension(contentType: string): string {
   if (contentType.includes("ogg")) return ".ogg";
   if (contentType.includes("flac")) return ".flac";
   return ".wav";
+}
+
+const sentenceEndingPattern = /[。！？!?…][”’"'）)\]】》〉]*$/u;
+
+function trimStoredVoiceTail(
+  audio: Uint8Array,
+  narration: string,
+): Uint8Array {
+  const durationMs = wavDurationMs(audio);
+  const trailingMs = pcmWavTrailingSilenceMs(audio) ?? 0;
+  const maximumTailMs = sentenceEndingPattern.test(narration.trim())
+    ? 160
+    : 140;
+  if (!durationMs || trailingMs <= maximumTailMs) return audio;
+  return slicePcmWav(
+    audio,
+    0,
+    Math.max(1, durationMs - (trailingMs - maximumTailMs)),
+  );
 }
 
 function assetMatchesRevision(
@@ -62,6 +100,7 @@ function assetMatchesRevision(
     candidate.sceneRevision === sceneRevision
   );
 }
+
 
 export function createRenderProcessor(
   objectStore = new LocalObjectStore(),
@@ -89,6 +128,39 @@ export function createRenderProcessor(
         },
       },
     });
+    const progressReporter = createMonotonicProgressReporter(
+      2,
+      async (progress) => {
+        await Promise.all([
+          bullJob.updateProgress(progress),
+          prisma.generationJob.update({
+            where: { id: input.jobId },
+            data: { progress },
+          }),
+        ]);
+      },
+    );
+    const abortController = new AbortController();
+    const cancellationPoll = setInterval(() => {
+      void prisma.generationJob
+        .findUnique({
+          where: { id: input.jobId },
+          select: { status: true },
+        })
+        .then((job) => {
+          if (
+            job?.status === "CANCEL_REQUESTED" ||
+            job?.status === "CANCELED"
+          ) {
+            abortController.abort();
+          }
+        })
+        .catch(() => undefined);
+    }, 800);
+    const stopCancellationPoll = () => clearInterval(cancellationPoll);
+    const throwIfCanceled = () => {
+      if (abortController.signal.aborted) throw new Error("RENDER_CANCELED");
+    };
 
     try {
       await synchronizeProjectSoundEffects(
@@ -108,6 +180,7 @@ export function createRenderProcessor(
                 take: 1,
                 include: { asset: true },
               },
+              subtitleCues: { orderBy: { order: "asc" } },
               soundPlacements: { include: { asset: true } },
               sceneAssets: {
                 where: { role: "VISUAL" },
@@ -117,9 +190,8 @@ export function createRenderProcessor(
             },
           },
           assets: {
-            where: { kind: "BGM" },
+            where: { kind: { in: ["BGM", "NARRATION_MIX"] } },
             orderBy: { createdAt: "desc" },
-            take: 1,
           },
         },
       });
@@ -134,6 +206,27 @@ export function createRenderProcessor(
       const height = portrait ? 1920 : 1080;
       const renderScenes: FfmpegRenderPlan["scenes"] = [];
       const remotionScenes: RemotionRenderInput["scenes"] = [];
+      const narrationParts: Uint8Array[] = [];
+      const sceneIds = project.scenes.map((scene) => scene.id);
+      const continuousNarrationAsset = project.assets
+        .filter((asset) => asset.kind === "NARRATION_MIX")
+        .map((asset) => ({
+          asset,
+          metadata: resolveContinuousNarrationMetadata(
+            asset.metadata,
+            project.revision,
+            sceneIds,
+          ),
+        }))
+        .find((candidate) => candidate.metadata !== undefined);
+      const continuousNarrationMetadata =
+        continuousNarrationAsset?.metadata;
+      const useStoredContinuousNarration =
+        project.includeNarration &&
+        continuousNarrationAsset !== undefined &&
+        continuousNarrationMetadata !== undefined;
+      let canUseContinuousNarration =
+        project.includeNarration && !useStoredContinuousNarration;
       const subtitleCues: SubtitleCueInput[] = [];
       const soundEffects: NonNullable<FfmpegRenderPlan["soundEffects"]> = [];
       const subtitleStyle = subtitleStyleSchema.parse(project.subtitleStyle);
@@ -141,47 +234,52 @@ export function createRenderProcessor(
         subtitleStyle.templateId,
       );
       const resolvedSubtitleStyle = subtitleTemplate?.style;
+      const subtitleFontSize =
+        resolvedSubtitleStyle?.fontSize ?? subtitleStyle.fontSize;
       const knowledgeBoard = subtitleStyle.videoTemplate === "KNOWLEDGE_BOARD";
       const headerText =
         subtitleStyle.headerText ||
-        "思维提升 | 表达沟通 | 职场成长 | 自我突破";
+        "\u601d\u7ef4\u63d0\u5347|\u8868\u8fbe\u6c9f\u901a|\u804c\u573a\u6210\u957f|\u81ea\u6211\u7a81\u7834";
+      const resolvedTemplateText = resolvedSubtitleStyle as
+        | {
+            leftVerticalText?: string;
+            rightVerticalText?: string;
+            mainTitle?: string;
+          }
+        | undefined;
+      const leftVerticalText =
+        resolvedTemplateText?.leftVerticalText ??
+        subtitleStyle.leftVerticalText;
+      const rightVerticalText =
+        resolvedTemplateText?.rightVerticalText ??
+        subtitleStyle.rightVerticalText;
+      const templateMainTitle = (
+        resolvedTemplateText?.mainTitle ??
+        subtitleStyle.mainTitle ??
+        ""
+      ).trim();
+      const mainTitle =
+        templateMainTitle ||
+        (subtitleStyle.customTitle
+          ? project.title.trim()
+          : firstSentenceOf(project.sourceText) || project.title.trim());
       let timelineMs = 0;
-      const firstGeneratedSceneId = project.scenes.find(
-        (item) => !item.isTextOpening,
-      )?.id;
 
       for (const [index, scene] of project.scenes.entries()) {
-        const isFirstGenerated = scene.id === firstGeneratedSceneId;
-        const animation = scene.isTextOpening
-          ? { type: "NONE" as const, direction: "NONE" as const, intensity: 0 }
-          : isFirstGenerated
-            ? {
-                type: "RISE" as const,
-                direction: "UP" as const,
-                intensity: 1,
-              }
-            : animationSchema.parse(scene.animation);
-        const transition = scene.isTextOpening
-          ? { type: "CUT" as const, duration: 0 }
-          : applyTransitionPreference(
-              transitionSchema.parse(scene.transition),
-              subtitleStyle.transitionsEnabled,
-            );
+        throwIfCanceled();
+        const animation = resolveRenderAnimation(scene.animation, index, {
+          knowledgeBoard,
+        });
+        const transition = applyTransitionPreference(
+          transitionSchema.parse(scene.transition),
+          subtitleStyle.transitionsEnabled,
+          index,
+          project.scenes.length,
+        );
         const imagePath = path.join(workspace, `scene-${index}.png`);
         let sourceImage: Uint8Array;
 
-        if (scene.isTextOpening) {
-          sourceImage = await sharp({
-            create: {
-              width,
-              height,
-              channels: 3,
-              background: "#0B0B0F",
-            },
-          })
-            .png()
-            .toBuffer();
-        } else if (project.visualMode === "AI_IMAGE") {
+        if (project.visualMode === "AI_IMAGE") {
           const cached = scene.sceneAssets.find((link) =>
             assetMatchesRevision(
               link.asset.metadata,
@@ -207,10 +305,10 @@ export function createRenderProcessor(
         const preparedImage: Uint8Array = knowledgeBoard
           ? await prepareKnowledgeBoardImage(sourceImage)
           : await sharp(sourceImage)
-            .rotate()
-            .resize(width, height, { fit: "cover", position: "centre" })
-            .png()
-            .toBuffer();
+              .rotate()
+              .resize(width, height, { fit: "cover", position: "centre" })
+              .png()
+              .toBuffer();
         await writeFile(imagePath, preparedImage);
         const ffmpegImagePath = knowledgeBoard
           ? path.join(workspace, `scene-${index}-frame.png`)
@@ -223,6 +321,9 @@ export function createRenderProcessor(
               width,
               height,
               headerText,
+              mainTitle,
+              leftVerticalText,
+              rightVerticalText,
               sourceIsPrepared: true,
             }),
           );
@@ -230,32 +331,78 @@ export function createRenderProcessor(
 
         let voicePath: string | undefined;
         let voiceFile: string | undefined;
-        const voiceAsset = scene.voiceTracks[0]?.asset;
-        if (project.includeNarration && voiceAsset && !scene.isTextOpening) {
+        let normalizedVoiceCues: SubtitleCueInput[] | undefined;
+        let sceneDurationMs = Math.round(scene.estimatedDuration * 1_000);
+        const voiceTrack = scene.voiceTracks[0];
+        const voiceAsset = voiceTrack?.asset;
+        if (project.includeNarration && voiceAsset) {
           voiceFile = `voice-${index}${mediaExtension(voiceAsset.contentType)}`;
           voicePath = path.join(workspace, voiceFile);
-          await writeFile(
-            voicePath,
-            await objectStore.get(voiceAsset.objectKey),
+          const storedCues: SubtitleCueInput[] = scene.subtitleCues.map(
+            (cue) => ({
+              startMs: cue.startMs,
+              endMs: Math.max(cue.startMs + 1, cue.endMs),
+              text: cue.text,
+              ...(cue.translation ? { translation: cue.translation } : {}),
+              ...(Array.isArray(cue.highlighted)
+                ? {
+                    highlighted: cue.highlighted.filter(
+                      (value): value is string => typeof value === "string",
+                    ),
+                  }
+                : {}),
+            }),
           );
+          const continuousSceneDurationMs =
+            continuousNarrationMetadata?.sceneDurationsMs[index];
+          const storedVoiceAudio = await objectStore.get(voiceAsset.objectKey);
+          const voiceAudio = trimStoredVoiceTail(
+            storedVoiceAudio,
+            scene.narration,
+          );
+          const trimmedVoiceDurationMs = wavDurationMs(voiceAudio);
+          if (continuousSceneDurationMs) {
+            sceneDurationMs = continuousSceneDurationMs;
+          } else if (trimmedVoiceDurationMs && trimmedVoiceDurationMs > 0) {
+            sceneDurationMs = Math.max(300, trimmedVoiceDurationMs);
+          } else if (voiceTrack.durationMs && voiceTrack.durationMs > 0) {
+            sceneDurationMs = Math.max(300, voiceTrack.durationMs);
+          }
+          if (
+            !continuousSceneDurationMs &&
+            index < project.scenes.length - 1
+          ) {
+            // TTS clips already end with a short tail, so this only
+            // adds room after true sentence endings; comma clause breaks
+            // keep their natural flow.
+            sceneDurationMs += interSceneNarrationPauseMs(scene.narration);
+          }
+          normalizedVoiceCues = prepareStoredSubtitleCues(
+            storedCues,
+            sceneDurationMs,
+          );
+          await writeFile(voicePath, voiceAudio);
+          if (voiceAsset.contentType === "audio/wav") {
+            narrationParts.push(voiceAudio);
+          } else {
+            canUseContinuousNarration = false;
+          }
+        } else if (project.includeNarration) {
+          canUseContinuousNarration = false;
         }
         renderScenes.push({
           imagePath: ffmpegImagePath,
-          duration: scene.estimatedDuration,
+          duration: sceneDurationMs / 1_000,
           animation: animation.type,
           transition,
           ...(voicePath ? { voicePath } : {}),
         });
-        const sceneDurationMs = Math.round(scene.estimatedDuration * 1_000);
-        const formattedOpening = scene.isTextOpening
-          ? formatTextOpening(scene.subtitle)
-          : undefined;
-        const cueText = formattedOpening?.singleLine ?? scene.subtitle;
-        const localSubtitleCues =
-          project.includeSubtitles || scene.isTextOpening
-            ? alignTextToDuration(cueText, sceneDurationMs)
-            : [];
-        if (project.includeSubtitles || scene.isTextOpening) {
+        const localSubtitleCues = project.includeSubtitles
+          ? normalizedVoiceCues && normalizedVoiceCues.length > 0
+            ? normalizedVoiceCues
+            : alignTextToDuration(scene.subtitle, sceneDurationMs, null)
+          : [];
+        if (project.includeSubtitles) {
           for (const cue of localSubtitleCues) {
             subtitleCues.push({
               ...cue,
@@ -289,17 +436,44 @@ export function createRenderProcessor(
           durationMs: sceneDurationMs,
           animation,
           transition,
-          isTextOpening: scene.isTextOpening,
-          ...(formattedOpening
-            ? { openingText: formattedOpening.displayText }
-            : {}),
           ...(voiceFile ? { voiceFile } : {}),
           subtitleCues: localSubtitleCues,
           soundEffects: localSoundEffects,
         });
         timelineMs += sceneDurationMs;
-        await bullJob.updateProgress(
+        progressReporter.report(
           5 + Math.round(((index + 1) / project.scenes.length) * 20),
+        );
+      }
+
+      let narrationPath: string | undefined;
+      let narrationFile: string | undefined;
+      if (useStoredContinuousNarration && continuousNarrationAsset) {
+        narrationFile = "narration.wav";
+        narrationPath = path.join(workspace, narrationFile);
+        await writeFile(
+          narrationPath,
+          await objectStore.get(continuousNarrationAsset.asset.objectKey),
+        );
+      } else if (
+        canUseContinuousNarration &&
+        narrationParts.length === project.scenes.length
+      ) {
+        narrationFile = "narration.wav";
+        narrationPath = path.join(workspace, narrationFile);
+        await writeFile(
+          narrationPath,
+          concatenatePcmWav(
+            narrationParts.map((audio, partIndex) => ({
+              audio,
+              pauseAfterMs:
+                partIndex < narrationParts.length - 1
+                  ? interSceneNarrationPauseMs(
+                      project.scenes[partIndex]!.narration,
+                    )
+                  : 0,
+            })),
+          ),
         );
       }
 
@@ -316,8 +490,7 @@ export function createRenderProcessor(
                 (process.platform === "win32"
                   ? "Microsoft YaHei"
                   : "Noto Sans CJK SC"),
-              fontSize:
-                resolvedSubtitleStyle?.fontSize ?? subtitleStyle.fontSize,
+              fontSize: subtitleFontSize,
               primaryColor:
                 resolvedSubtitleStyle?.primaryColor ??
                 (knowledgeBoard ? "#FFFFFF" : "#FFFFFF"),
@@ -356,7 +529,9 @@ export function createRenderProcessor(
 
       let backgroundMusicPath: string | undefined;
       let backgroundMusicFile: string | undefined;
-      const backgroundMusic = project.assets[0];
+      const backgroundMusic = project.assets.find(
+        (asset) => asset.kind === "BGM",
+      );
       if (backgroundMusic) {
         backgroundMusicFile = `background-music${mediaExtension(backgroundMusic.contentType)}`;
         backgroundMusicPath = path.join(workspace, backgroundMusicFile);
@@ -364,6 +539,40 @@ export function createRenderProcessor(
           backgroundMusicPath,
           await objectStore.get(backgroundMusic.objectKey),
         );
+
+        // Short background music is looped to cover the full video so both
+        // the Remotion and FFmpeg render paths always have a track that
+        // lasts until the end of the narration.
+        const musicInfo = await probeMediaInfo(backgroundMusicPath);
+        const musicDurationMs = musicInfo.durationMs ?? timelineMs;
+        if (musicDurationMs < timelineMs) {
+          const loopedFile = "background-music-looped.mp3";
+          const loopedPath = path.join(workspace, loopedFile);
+          const loopSeconds = (timelineMs + 1_000) / 1_000;
+          await runFfmpeg(
+            [
+              "-stream_loop",
+              "-1",
+              "-i",
+              backgroundMusicPath,
+              "-t",
+              loopSeconds.toFixed(3),
+              "-ac",
+              "2",
+              "-ar",
+              "48000",
+              "-c:a",
+              "libmp3lame",
+              "-q:a",
+              "2",
+              "-y",
+              loopedPath,
+            ],
+            () => undefined,
+          );
+          backgroundMusicFile = loopedFile;
+          backgroundMusicPath = loopedPath;
+        }
       }
       await Promise.all([
         writeFile(
@@ -386,43 +595,49 @@ export function createRenderProcessor(
         ),
       ]);
       const outputPath = path.join(workspace, "output.mp4");
+      const filterScriptPath = path.join(workspace, "complex-filter.txt");
       const command = buildFfmpegRenderCommand({
         scenes: renderScenes,
         outputPath,
         ...(subtitlePath ? { subtitlePath } : {}),
+        ...(narrationPath ? { narrationPath } : {}),
         ...(backgroundMusicPath ? { backgroundMusicPath } : {}),
+        narrationVolume: project.narrationVolume,
+        backgroundMusicVolume: project.backgroundMusicVolume,
         soundEffects,
         width,
         height,
+        fps: 60,
         watermark: input.watermark,
+        filterScriptPath,
         ...(process.env.FFMPEG_FONT_FILE
           ? { fontFile: process.env.FFMPEG_FONT_FILE }
           : process.platform === "win32"
             ? { fontFile: "C:\\Windows\\Fonts\\arial.ttf" }
             : {}),
       });
+      await writeFile(filterScriptPath, command.filterScript);
 
       const reportRenderProgress = (ratio: number) => {
         const progress =
           25 + Math.min(70, Math.round(Math.min(1, Math.max(0, ratio)) * 70));
-        void bullJob.updateProgress(progress);
-        void prisma.generationJob.update({
-          where: { id: input.jobId },
-          data: { progress },
-        });
+        progressReporter.report(progress);
       };
       const remotionPlan: RemotionRenderInput = {
         width,
         height,
-        fps: 30,
-        scenes: remotionScenes,
+        fps: 60,
+        scenes: narrationFile
+          ? remotionScenes.map((scene) => ({ ...scene, voiceFile: undefined }))
+          : remotionScenes,
+        ...(narrationFile ? { narrationFile } : {}),
         ...(backgroundMusicFile ? { backgroundMusicFile } : {}),
-        backgroundMusicVolume: project.includeNarration ? 0.14 : 0.22,
+        narrationVolume: project.narrationVolume,
+        backgroundMusicVolume: project.backgroundMusicVolume,
         videoTemplate: subtitleStyle.videoTemplate,
         headerText,
         subtitleStyle: {
-          fontSize:
-            resolvedSubtitleStyle?.fontSize ?? subtitleStyle.fontSize,
+          fontSize: subtitleFontSize,
           position:
             resolvedSubtitleStyle?.position ??
             (knowledgeBoard ? "BOTTOM" : subtitleStyle.position),
@@ -447,18 +662,9 @@ export function createRenderProcessor(
                 shadowColor: resolvedSubtitleStyle.shadowColor,
               }
             : {}),
-          leftVerticalText:
-            (resolvedSubtitleStyle as { leftVerticalText?: string } | undefined)
-              ?.leftVerticalText ??
-            subtitleStyle.leftVerticalText,
-          rightVerticalText:
-            (resolvedSubtitleStyle as { rightVerticalText?: string } | undefined)
-              ?.rightVerticalText ??
-            subtitleStyle.rightVerticalText,
-          mainTitle:
-            (resolvedSubtitleStyle as { mainTitle?: string } | undefined)
-              ?.mainTitle ??
-            subtitleStyle.mainTitle,
+          leftVerticalText,
+          rightVerticalText,
+          mainTitle,
           ...(knowledgeBoard
             ? {
                 primaryColor: "#FFFFFF",
@@ -481,9 +687,18 @@ export function createRenderProcessor(
             bundleDir: bundleWorkspace,
             outputPath,
             onProgress: reportRenderProgress,
+            signal: abortController.signal,
           });
         } catch (error) {
-          if (process.env.REMOTION_FALLBACK_TO_FFMPEG === "false") throw error;
+          if (abortController.signal.aborted) throw error;
+          if (
+            !allowsTemplateSafeFfmpegFallback(
+              subtitleStyle.videoTemplate,
+              process.env.REMOTION_FALLBACK_TO_FFMPEG,
+            )
+          ) {
+            throw error;
+          }
           renderSource = "ffmpeg-fallback";
           await rm(outputPath, { force: true });
           await prisma.generationJob.update({
@@ -492,28 +707,46 @@ export function createRenderProcessor(
               events: {
                 create: {
                   status: "RUNNING",
-                  progress: 25,
+                  progress: progressReporter.current(),
                   code: "REMOTION_RENDER_FALLBACK",
                   message: cleanError(error),
                 },
               },
             },
           });
-          await ffmpegRunner(command.args, (outTimeMs) =>
-            reportRenderProgress(outTimeMs / (command.durationSeconds * 1_000)),
+          await ffmpegRunner(
+            command.args,
+            (outTimeMs) =>
+              reportRenderProgress(
+                outTimeMs / (command.durationSeconds * 1_000),
+              ),
+            abortController.signal,
           );
         }
       } else {
         renderSource = "ffmpeg";
-        await ffmpegRunner(command.args, (outTimeMs) =>
-          reportRenderProgress(outTimeMs / (command.durationSeconds * 1_000)),
+        await ffmpegRunner(
+          command.args,
+          (outTimeMs) =>
+            reportRenderProgress(
+              outTimeMs / (command.durationSeconds * 1_000),
+            ),
+          abortController.signal,
         );
       }
-      await bullJob.updateProgress(95);
+      throwIfCanceled();
+      progressReporter.report(95);
+      await progressReporter.flush();
 
       const video = await readFile(outputPath);
       const objectKey = `projects/${project.id}/revisions/${project.revision}/renders/${input.jobId}.mp4`;
       const stored = await objectStore.put(objectKey, video, "video/mp4");
+      const covers = await generateProjectCoversAfterRender({
+        prisma,
+        objectStore,
+        project,
+        projectRevision: input.projectRevision,
+      });
       await prisma.$transaction(async (tx) => {
         const asset = await tx.asset.create({
           data: {
@@ -549,12 +782,28 @@ export function createRenderProcessor(
             errorCode: null,
             errorMessage: null,
             finishedAt: new Date(),
-            output: { objectKey, width, height },
+            output: {
+              objectKey,
+              width,
+              height,
+              coverAssetId: covers.portraitAssetId,
+              coverLandscapeAssetId: covers.landscapeAssetId,
+              coverTitle: covers.copy?.title ?? null,
+              coverSubtitle: covers.copy?.subtitle ?? null,
+              coverCopyModel: covers.model,
+              coverCopySource: covers.source,
+            },
             events: {
               create: {
                 status: "SUCCEEDED",
                 progress: 100,
                 code: "RENDER_SUCCEEDED",
+                metadata: {
+                  coverAssetId: covers.portraitAssetId,
+                  coverLandscapeAssetId: covers.landscapeAssetId,
+                  coverCopyModel: covers.model,
+                  coverCopySource: covers.source,
+                },
               },
             },
           },
@@ -563,28 +812,48 @@ export function createRenderProcessor(
       await bullJob.updateProgress(100);
       return { objectKey };
     } catch (error) {
+      const canceled = abortController.signal.aborted;
       const willRetry =
         bullJob.attemptsMade + 1 <
         (typeof bullJob.opts.attempts === "number" ? bullJob.opts.attempts : 1);
       await prisma.generationJob.update({
         where: { id: input.jobId },
         data: {
-          status: willRetry ? "RETRYING" : "FAILED",
-          errorCode: "RENDER_FAILED",
-          errorMessage: cleanError(error),
-          ...(willRetry ? {} : { finishedAt: new Date() }),
+          ...(canceled
+            ? {
+                status: "CANCELED",
+                errorCode: "RENDER_CANCELED",
+                errorMessage: "渲染已取消",
+                finishedAt: new Date(),
+              }
+            : {
+                status: willRetry ? "RETRYING" : "FAILED",
+                errorCode: "RENDER_FAILED",
+                errorMessage: cleanError(error),
+                ...(willRetry ? {} : { finishedAt: new Date() }),
+              }),
           events: {
             create: {
-              status: willRetry ? "RETRYING" : "FAILED",
+              status: canceled
+                ? "CANCELED"
+                : willRetry
+                  ? "RETRYING"
+                  : "FAILED",
               progress: 0,
-              code: "RENDER_FAILED",
-              message: cleanError(error),
+              code: canceled ? "RENDER_CANCELED" : "RENDER_FAILED",
+              message: canceled ? "渲染已取消" : cleanError(error),
             },
           },
         },
       });
+      if (canceled) {
+        await rm(path.join(workspace, "output.mp4"), { force: true }).catch(
+          () => undefined,
+        );
+      }
       throw error instanceof Error ? error : new Error(cleanError(error));
     } finally {
+      stopCancellationPoll();
       await rm(workspace, { recursive: true, force: true });
       await rm(bundleWorkspace, { recursive: true, force: true });
     }

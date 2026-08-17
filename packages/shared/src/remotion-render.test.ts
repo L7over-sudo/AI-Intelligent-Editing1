@@ -30,18 +30,35 @@ describe("remotion render input", () => {
     expect(remotionRenderInputSchema.parse(validInput).fps).toBe(30);
   });
 
-  it("accepts a text-only opening scene flag", () => {
+  it("validates narration and background music volume independently", () => {
     const parsed = remotionRenderInputSchema.parse({
       ...validInput,
-      scenes: [
-        {
-          ...validInput.scenes[0],
-          isTextOpening: true,
-          subtitleCues: [{ startMs: 0, endMs: 2_000, text: "开场" }],
-        },
-      ],
+      narrationVolume: 1.4,
+      backgroundMusicVolume: 0.3,
     });
-    expect(parsed.scenes[0]?.isTextOpening).toBe(true);
+    expect(parsed.narrationVolume).toBe(1.4);
+    expect(parsed.backgroundMusicVolume).toBe(0.3);
+    expect(() =>
+      remotionRenderInputSchema.parse({
+        ...validInput,
+        narrationVolume: 2.1,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects the removed text-opening scene fields", () => {
+    expect(() =>
+      remotionRenderInputSchema.parse({
+        ...validInput,
+        scenes: [
+          {
+            ...validInput.scenes[0],
+            isTextOpening: true,
+            openingText: "Opening",
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("accepts a rise animation for the first generated scene", () => {
@@ -55,6 +72,29 @@ describe("remotion render input", () => {
       ],
     });
     expect(parsed.scenes[0]?.animation.type).toBe("RISE");
+  });
+
+  it("accepts subtitle keyword highlights produced by voice alignment", () => {
+    const parsed = remotionRenderInputSchema.parse({
+      ...validInput,
+      scenes: [
+        {
+          ...validInput.scenes[0],
+          subtitleCues: [
+            {
+              startMs: 0,
+              endMs: 2_000,
+              text: "职场边界需要说清楚",
+              highlighted: ["职场边界"],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.scenes[0]?.subtitleCues[0]?.highlighted).toEqual([
+      "职场边界",
+    ]);
   });
 
   it("rejects traversal paths and odd render dimensions", () => {

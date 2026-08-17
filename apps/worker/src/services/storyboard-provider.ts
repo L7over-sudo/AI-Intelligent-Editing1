@@ -4,8 +4,10 @@ import { zodTextFormat } from "openai/helpers/zod";
 import {
   applyNarrationTiming,
   createStoryboardPrompt,
+  normalizeCoverCopy,
   storyboardSchema,
   type Storyboard,
+  type VideoTemplate,
 } from "@stickmotion/shared";
 
 export interface StoryboardRequest {
@@ -15,6 +17,7 @@ export interface StoryboardRequest {
   language: string;
   accentColor: string;
   imagePrompt: string;
+  videoTemplate?: VideoTemplate;
 }
 
 export interface StoryboardProvider {
@@ -28,7 +31,7 @@ export class OpenAIStoryboardProvider implements StoryboardProvider {
   constructor(options?: { client?: OpenAI; model?: string }) {
     this.#client = options?.client ?? new OpenAI();
     this.#model =
-      options?.model ?? process.env.OPENAI_SCRIPT_MODEL ?? "gpt-5.6-terra";
+      options?.model ?? process.env.OPENAI_SCRIPT_MODEL ?? "claude-sonnet-5";
   }
 
   async generate(request: StoryboardRequest): Promise<Storyboard> {
@@ -50,6 +53,20 @@ export class OpenAIStoryboardProvider implements StoryboardProvider {
       throw new Error("OPENAI_STRUCTURED_OUTPUT_MISSING");
     }
 
-    return applyNarrationTiming(storyboardSchema.parse(response.output_parsed));
+    const storyboard = storyboardSchema.parse(response.output_parsed);
+    const coverCopy = normalizeCoverCopy({
+      sourceText: request.sourceText,
+      ...(storyboard.coverTitle !== undefined
+        ? { title: storyboard.coverTitle }
+        : {}),
+      ...(storyboard.coverSubtitle !== undefined
+        ? { subtitle: storyboard.coverSubtitle }
+        : {}),
+    });
+    return applyNarrationTiming({
+      ...storyboard,
+      coverTitle: coverCopy.title,
+      coverSubtitle: coverCopy.subtitle,
+    });
   }
 }

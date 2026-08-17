@@ -49,6 +49,9 @@ enum JobStatus {
 }
 
 enum AssetKind {
+  COVER_AVATAR
+  COVER_IMAGE
+  COVER_IMAGE_LANDSCAPE
   SVG_SCENE
   AI_IMAGE
   CHARACTER_REFERENCE
@@ -99,7 +102,8 @@ model Project {
   includeNarration   Boolean           @default(true)
   includeSubtitles   Boolean           @default(true)
   includeSoundEffects Boolean          @default(true)
-  useTextOpeningTemplate Boolean       @default(false)
+  narrationVolume    Float             @default(1.0)
+  backgroundMusicVolume Float          @default(0.1)
   status             ProjectStatus     @default(DRAFT)
   revision           Int               @default(1)
   createdAt          DateTime          @default(now())
@@ -131,7 +135,6 @@ model Scene {
   animation         Json
   transition        Json
   soundEffects      Json
-  isTextOpening     Boolean          @default(false)
   revision          Int              @default(1)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt

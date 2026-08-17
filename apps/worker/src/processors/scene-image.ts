@@ -1,14 +1,13 @@
 ﻿import type { LocalJob } from "@stickmotion/queue";
 
 import { getPrisma } from "@stickmotion/db";
-import {
-  LocalObjectStore,
-  type StoredObject,
-} from "@stickmotion/storage";
+import { LocalObjectStore, type StoredObject } from "@stickmotion/storage";
 import {
   sceneImageBatchSize,
   sceneImageGenerationInputSchema,
+  subtitleStyleSchema,
   type SceneImageGenerationInput,
+  type VideoTemplate,
 } from "@stickmotion/shared";
 import sharp from "sharp";
 
@@ -16,14 +15,42 @@ import {
   OpenAIImageProvider,
   type GenerateSceneImageInput,
 } from "../services/ai-image-provider";
+import { prepareKnowledgeBoardImage } from "../services/video-template-frame";
 import {
   automaticVoiceIdempotencyKey,
+  groupScenesForContinuousVoice,
   shouldQueueAutomaticVoice,
 } from "./automatic-voice";
+import { formatSceneImageGenerationFailure } from "./scene-image-errors";
 
 export interface SceneImageProvider {
   readonly model: string;
   generate(input: GenerateSceneImageInput): Promise<Uint8Array>;
+}
+
+export function getSceneImageAspectRatio(
+  projectAspectRatio: "PORTRAIT" | "LANDSCAPE",
+  videoTemplate: VideoTemplate,
+): GenerateSceneImageInput["aspectRatio"] {
+  return videoTemplate === "KNOWLEDGE_BOARD" ? "WIDE" : projectAspectRatio;
+}
+
+export async function normalizeGeneratedSceneImage(
+  source: Uint8Array,
+  aspectRatio: GenerateSceneImageInput["aspectRatio"],
+): Promise<Buffer> {
+  if (aspectRatio === "WIDE") {
+    return prepareKnowledgeBoardImage(source);
+  }
+
+  const portrait = aspectRatio === "PORTRAIT";
+  return sharp(source)
+    .resize(portrait ? 1080 : 1920, portrait ? 1920 : 1080, {
+      fit: "cover",
+      position: "centre",
+    })
+    .png()
+    .toBuffer();
 }
 
 const characterReferenceContentTypes = new Set([
@@ -134,16 +161,17 @@ export function createSceneImageProcessor(
     if (project.visualMode !== "AI_IMAGE") {
       throw new Error("AI_IMAGE_MODE_REQUIRED");
     }
-    const visualScenes = project.scenes.filter(
-      (scene) => !scene.isTextOpening,
-    );
+    const subtitleStyle = subtitleStyleSchema.parse(project.subtitleStyle);
+    const videoTemplate = subtitleStyle.videoTemplate;
+    const visualScenes = project.scenes;
     if (visualScenes.length !== new Set(input.sceneIds).size) {
       throw new Error("SCENE_NOT_FOUND");
     }
 
-    const portrait = project.aspectRatio === "PORTRAIT";
-    const width = portrait ? 1080 : 1920;
-    const height = portrait ? 1920 : 1080;
+    const imageAspectRatio = getSceneImageAspectRatio(
+      project.aspectRatio,
+      videoTemplate,
+    );
     const assetIds: string[] = [];
     const referenceImageUrls = project.characterProfile
       ? [
@@ -206,14 +234,15 @@ export function createSceneImageProcessor(
 
       const generated = await imageProvider.generate({
         prompt: scene.visualPrompt,
-        aspectRatio: project.aspectRatio,
+        aspectRatio: imageAspectRatio,
         accentColor: project.accentColor,
+        imageSize: subtitleStyle.imageSize,
         ...(referenceImageUrls ? { referenceImageUrls } : {}),
       });
-      const normalized = await sharp(generated)
-        .resize(width, height, { fit: "cover", position: "centre" })
-        .png()
-        .toBuffer();
+      const normalized = await normalizeGeneratedSceneImage(
+        generated,
+        imageAspectRatio,
+      );
       const stored = await objectStore.put(objectKey, normalized, "image/png");
       return { scene, stored } as const;
     };
@@ -289,7 +318,10 @@ export function createSceneImageProcessor(
     for (const batch of batchSceneImages(visualScenes)) {
       const attempted = await Promise.all(
         batch.map((scene) =>
-          prepareSceneImage(scene).catch((error: unknown) => ({ scene, error })),
+          prepareSceneImage(scene).catch((error: unknown) => ({
+            scene,
+            error,
+          })),
         ),
       );
 
@@ -328,28 +360,37 @@ export function createSceneImageProcessor(
 
       if (failures.length > 0) {
         throw new Error(
-          `SCENE_IMAGE_GENERATION_FAILED: ${failures
-            .map((item) => item.scene.id)
-            .join(",")}`,
+          formatSceneImageGenerationFailure(
+            failures.map((item) => ({
+              sceneId: item.scene.id,
+              error: item.error,
+            })),
+          ),
           { cause: failures[0]?.error },
         );
       }
 
       const progress =
-        5 + Math.round((assetIds.length / Math.max(1, visualScenes.length)) * 90);
+        5 +
+        Math.round((assetIds.length / Math.max(1, visualScenes.length)) * 90);
       await localJob.updateProgress(progress);
     }
 
     const automaticVoiceJobIds: string[] = [];
     await prisma.$transaction(async (tx) => {
-      for (const scene of project.scenes) {
-        if (scene.isTextOpening) continue;
+      for (const voiceGroup of groupScenesForContinuousVoice(
+        project.scenes,
+      )) {
+        const scene = voiceGroup[0];
+        if (!scene) continue;
         if (
           !shouldQueueAutomaticVoice({
             includeNarration: project.includeNarration,
             voiceStyle: project.voiceStyle,
             voiceProfileId: project.voiceProfileId,
-            hasVoiceTrack: scene.voiceTracks.length > 0,
+            hasVoiceTrack: voiceGroup.every(
+              (candidate) => candidate.voiceTracks.length > 0,
+            ),
           })
         ) {
           continue;

@@ -1,3 +1,8 @@
+export {
+  continuousVoiceGroupForScene,
+  groupScenesForContinuousVoice,
+} from "@stickmotion/shared";
+
 export interface AutomaticVoiceCandidate {
   includeNarration: boolean;
   voiceStyle: string;

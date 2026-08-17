@@ -1,0 +1,1 @@
+-- COVER_IMAGE_LANDSCAPE is stored as a text asset kind in SQLite, so no table rewrite is required.

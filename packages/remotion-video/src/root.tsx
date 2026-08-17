@@ -10,7 +10,7 @@ import { calculateRemotionDurationInFrames } from "./timing";
 const defaultProps: RemotionRenderInput = {
   width: 1920,
   height: 1080,
-  fps: 30,
+  fps: 60,
   scenes: [
     {
       imageFile: "placeholder.png",
@@ -21,7 +21,8 @@ const defaultProps: RemotionRenderInput = {
       soundEffects: [],
     },
   ],
-  backgroundMusicVolume: 0.18,
+  narrationVolume: 1,
+  backgroundMusicVolume: 0.1,
   videoTemplate: "FULL_BLEED",
   headerText: "",
   subtitleStyle: {
@@ -38,8 +39,8 @@ export const RemotionRoot = () => (
   <Composition
     id="StickMotionVideo"
     component={StickMotionVideo}
-    durationInFrames={30}
-    fps={30}
+    durationInFrames={60}
+    fps={60}
     width={1920}
     height={1080}
     defaultProps={defaultProps}

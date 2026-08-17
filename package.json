@@ -8,8 +8,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "pnpm dev:services && concurrently -n web,worker -c cyan,magenta \"pnpm --filter @stickmotion/web dev\" \"pnpm --filter @stickmotion/worker dev\"",
-    "dev:services": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-voxcpm.ps1",
+    "dev": "pnpm dev:services && concurrently -n web,render,media-a,media-b -c cyan,magenta,yellow,green \"pnpm --filter @stickmotion/web dev\" \"scripts\\run-worker-render.cmd\" \"scripts\\run-worker-media.cmd\" \"scripts\\run-worker-media.cmd\"",
+    "dev:services": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-services.ps1",
     "build": "pnpm -r --if-present build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
@@ -33,4 +33,3 @@
     "vitest": "^4.0.0"
   }
 }
-

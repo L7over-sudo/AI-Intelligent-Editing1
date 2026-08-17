@@ -1,0 +1,2 @@
+-- Asset kinds are stored as text in the local SQLite database. The new
+-- COVER_AVATAR and COVER_IMAGE values require no table rewrite.

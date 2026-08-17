@@ -1,15 +1,29 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { z } from "zod";
 
 import {
+  dialogueCompletionInputSchema,
+  intelligentSearchPlanRequestSchema,
+} from "@stickmotion/shared";
+
+import {
   imageApiModelSchema,
   imageApiSizeSchema,
   normalizeImageSize,
 } from "./services/ai-image-provider";
+import {
+  DialogueProviderError,
+  requestDialogueCompletion,
+} from "./services/dialogue-provider";
 import { ensureSoundEffectLibrary } from "./services/sound-effect-library";
+import { createIntelligentSearchPlan } from "./services/search-planner";
 import {
   defaultSubtitleTemplateRoot,
   ensureSubtitleTemplateCatalog,
@@ -26,21 +40,15 @@ const modelNameSchema = z
 
 export const openAISettingsInputSchema = z
   .object({
-    apiKey: z.string().trim().min(20).max(500).optional(),
+    apiKey: z.string().trim().min(1).max(500).optional(),
     clearApiKey: z.boolean().default(false),
+    apiBaseUrl: z.string().trim().url().startsWith("https://").max(300),
     imageApiKey: z.string().trim().min(1).max(500).optional(),
     clearImageApiKey: z.boolean().default(false),
-    imageApiBaseUrl: z
-      .string()
-      .trim()
-      .url()
-      .startsWith("https://")
-      .max(300),
+    imageApiBaseUrl: z.string().trim().url().startsWith("https://").max(300),
     imageModel: imageApiModelSchema,
     imageSize: imageApiSizeSchema,
     scriptModel: modelNameSchema,
-    ttsModel: modelNameSchema,
-    transcribeModel: modelNameSchema,
   })
   .strict()
   .superRefine((input, context) => {
@@ -59,26 +67,33 @@ export const openAISettingsInputSchema = z
 
 const settingKeys = {
   apiKey: "OPENAI_API_KEY",
+  apiBaseUrl: "OPENAI_BASE_URL",
   imageApiKey: "IMAGE_API_KEY",
+  musicLibraryRoot: "MUSIC_LIBRARY_ROOT",
   imageApiBaseUrl: "IMAGE_API_BASE_URL",
   imageModel: "IMAGE_API_MODEL",
   imageSize: "IMAGE_API_SIZE",
   scriptModel: "OPENAI_SCRIPT_MODEL",
-  ttsModel: "OPENAI_TTS_MODEL",
-  transcribeModel: "OPENAI_TRANSCRIBE_MODEL",
 } as const;
 
 const defaultSettings = {
+  apiBaseUrl: "https://www.hfsyapi.cn",
   imageApiBaseUrl: "https://www.hfsyapi.cn",
   imageModel: "gpt-image-2",
   imageSize: "1K",
-  scriptModel: "gpt-4.1-mini",
-  ttsModel: "gpt-4o-mini-tts",
-  transcribeModel: "gpt-4o-mini-transcribe",
+  scriptModel: "claude-sonnet-5",
 } as const;
 
 const workspaceEnvPath = path.resolve(process.cwd(), "../..", ".env");
 const maxBodyBytes = 16 * 1024;
+const maxDialogueBodyBytes = 2 * 1024 * 1024;
+const defaultMusicLibraryRoot = "E:\\codex\\素材库\\音乐库";
+
+export const musicLibrarySettingsInputSchema = z
+  .object({
+    root: z.string().trim().min(1).max(500),
+  })
+  .strict();
 
 export function parseEnvFile(source: string): Map<string, string> {
   const values = new Map<string, string>();
@@ -119,26 +134,24 @@ async function readEnvSource(): Promise<string> {
 
 async function safeSettings() {
   const values = parseEnvFile(await readEnvSource());
-  const imageModel = imageApiModelSchema.catch("gpt-image-2").parse(
-    values.get(settingKeys.imageModel) ??
-      values.get("OPENAI_IMAGE_MODEL") ??
-      defaultSettings.imageModel,
-  );
+  const imageModel = imageApiModelSchema
+    .catch("gpt-image-2")
+    .parse(
+      values.get(settingKeys.imageModel) ??
+        values.get("OPENAI_IMAGE_MODEL") ??
+        defaultSettings.imageModel,
+    );
   const imageSize = normalizeImageSize(
     imageModel,
-    imageApiSizeSchema.catch("1K").parse(
-      values.get(settingKeys.imageSize) ?? defaultSettings.imageSize,
-    ),
-  );
-  const imageApiKeyConfigured = Boolean(
-    values.get(settingKeys.imageApiKey) ?? values.get(settingKeys.apiKey),
+    imageApiSizeSchema
+      .catch("1K")
+      .parse(values.get(settingKeys.imageSize) ?? defaultSettings.imageSize),
   );
   return {
     apiKeyConfigured: Boolean(values.get(settingKeys.apiKey)),
-    imageApiKeyConfigured,
-    imageApiUsesOpenAIKeyFallback:
-      !values.get(settingKeys.imageApiKey) &&
-      Boolean(values.get(settingKeys.apiKey)),
+    apiBaseUrl:
+      values.get(settingKeys.apiBaseUrl) ?? defaultSettings.apiBaseUrl,
+    imageApiKeyConfigured: Boolean(values.get(settingKeys.imageApiKey)),
     imageApiBaseUrl:
       values.get(settingKeys.imageApiBaseUrl) ??
       defaultSettings.imageApiBaseUrl,
@@ -146,10 +159,6 @@ async function safeSettings() {
     imageSize,
     scriptModel:
       values.get(settingKeys.scriptModel) || defaultSettings.scriptModel,
-    ttsModel: values.get(settingKeys.ttsModel) || defaultSettings.ttsModel,
-    transcribeModel:
-      values.get(settingKeys.transcribeModel) ||
-      defaultSettings.transcribeModel,
     workerReloadsAutomatically: true as const,
   };
 }
@@ -159,12 +168,11 @@ async function saveSettings(unsafeInput: unknown) {
   const source = await readEnvSource();
   const current = parseEnvFile(source);
   const updates: Record<string, string> = {
+    [settingKeys.apiBaseUrl]: input.apiBaseUrl,
     [settingKeys.imageApiBaseUrl]: input.imageApiBaseUrl,
     [settingKeys.imageModel]: input.imageModel,
     [settingKeys.imageSize]: input.imageSize,
     [settingKeys.scriptModel]: input.scriptModel,
-    [settingKeys.ttsModel]: input.ttsModel,
-    [settingKeys.transcribeModel]: input.transcribeModel,
   };
   if (input.clearApiKey) {
     updates[settingKeys.apiKey] = "";
@@ -194,6 +202,27 @@ async function saveSettings(unsafeInput: unknown) {
   return safeSettings();
 }
 
+async function completeDialogue(unsafeInput: unknown) {
+  const input = dialogueCompletionInputSchema.parse(unsafeInput);
+  const values = parseEnvFile(await readEnvSource());
+  return requestDialogueCompletion({
+    apiKey: values.get(settingKeys.apiKey) ?? "",
+    baseUrl: values.get(settingKeys.apiBaseUrl) ?? defaultSettings.apiBaseUrl,
+    model: values.get(settingKeys.scriptModel) ?? defaultSettings.scriptModel,
+    input,
+  });
+}
+
+async function completeSearchPlan(unsafeInput: unknown) {
+  const input = intelligentSearchPlanRequestSchema.parse(unsafeInput);
+  const values = parseEnvFile(await readEnvSource());
+  return createIntelligentSearchPlan({
+    input,
+    apiKey: values.get(settingKeys.apiKey) ?? "",
+    baseUrl: values.get(settingKeys.apiBaseUrl) ?? defaultSettings.apiBaseUrl,
+  });
+}
+
 function allowedOrigins(): Set<string> {
   return new Set([
     process.env.APP_URL ?? "http://localhost:3000",
@@ -212,12 +241,15 @@ function setCors(request: IncomingMessage, response: ServerResponse): boolean {
   }
   response.setHeader("access-control-allow-origin", origin);
   response.setHeader("vary", "Origin");
-  response.setHeader("access-control-allow-methods", "GET, PUT, OPTIONS");
+  response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
   response.setHeader("access-control-allow-headers", "content-type");
   return true;
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+async function readJsonBody(
+  request: IncomingMessage,
+  maxBytes = maxBodyBytes,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -232,7 +264,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
         return;
       }
       size += buffer.byteLength;
-      if (size > maxBodyBytes) {
+      if (size > maxBytes) {
         reject(new Error("SETTINGS_BODY_TOO_LARGE"));
         return;
       }
@@ -240,9 +272,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     });
     request.on("end", () => {
       try {
-        resolve(
-          JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
-        );
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown);
       } catch (error) {
         reject(error instanceof Error ? error : new Error("INVALID_JSON"));
       }
@@ -260,8 +290,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
 }
 
 let soundEffectCatalogPromise:
-  | ReturnType<typeof ensureSoundEffectLibrary>
-  | undefined;
+  ReturnType<typeof ensureSoundEffectLibrary> | undefined;
 
 async function soundEffectCatalog() {
   if (process.env.SFX_LIBRARY_ENABLED === "false") {
@@ -281,8 +310,7 @@ async function soundEffectCatalog() {
 }
 
 let subtitleTemplateCatalogPromise:
-  | ReturnType<typeof ensureSubtitleTemplateCatalog>
-  | undefined;
+  ReturnType<typeof ensureSubtitleTemplateCatalog> | undefined;
 
 async function subtitleTemplateCatalog() {
   if (process.env.SUBTITLE_TEMPLATE_LIBRARY_ENABLED === "false") {
@@ -372,6 +400,102 @@ export function startSettingsServer() {
           response.end(preview);
         } catch {
           sendJson(response, 404, { error: "SUBTITLE_TEMPLATE_NOT_FOUND" });
+        }
+        return;
+      }
+      if (request.url === "/chat/completions" && request.method === "POST") {
+        try {
+          sendJson(
+            response,
+            200,
+            await completeDialogue(
+              await readJsonBody(request, maxDialogueBodyBytes),
+            ),
+          );
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            sendJson(response, 400, {
+              error: "VALIDATION_ERROR",
+              issues: error.issues,
+            });
+          } else if (error instanceof DialogueProviderError) {
+            sendJson(response, error.status, { error: error.code });
+          } else {
+            sendJson(response, 500, { error: "DIALOGUE_REQUEST_FAILED" });
+          }
+        }
+        return;
+      }
+      if (request.url === "/search/plan" && request.method === "POST") {
+        try {
+          sendJson(
+            response,
+            200,
+            await completeSearchPlan(await readJsonBody(request)),
+          );
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            sendJson(response, 400, {
+              error: "VALIDATION_ERROR",
+              issues: error.issues,
+            });
+          } else if (error instanceof DialogueProviderError) {
+            sendJson(response, error.status, { error: error.code });
+          } else {
+            const code =
+              error instanceof Error &&
+              error.message === "SEARCH_PLAN_RESPONSE_INVALID"
+                ? error.message
+                : "SEARCH_PLAN_FAILED";
+            sendJson(response, 502, { error: code });
+          }
+        }
+        return;
+      }
+      if (
+        request.url === "/music-library/settings" &&
+        request.method === "GET"
+      ) {
+        try {
+          const values = parseEnvFile(await readEnvSource());
+          sendJson(response, 200, {
+            root:
+              values.get(settingKeys.musicLibraryRoot) ??
+              defaultMusicLibraryRoot,
+          });
+        } catch {
+          sendJson(response, 500, {
+            error: "MUSIC_LIBRARY_SETTINGS_FAILED",
+          });
+        }
+        return;
+      }
+      if (
+        request.url === "/music-library/settings" &&
+        request.method === "PUT"
+      ) {
+        try {
+          const input = musicLibrarySettingsInputSchema.parse(
+            await readJsonBody(request),
+          );
+          const source = await readEnvSource();
+          const updates: Record<string, string> = {
+            [settingKeys.musicLibraryRoot]: input.root,
+          };
+          await writeFile(
+            workspaceEnvPath,
+            updateEnvFile(source, updates),
+            { encoding: "utf8", mode: 0o600 },
+          );
+          process.env[settingKeys.musicLibraryRoot] = input.root;
+          sendJson(response, 200, { root: input.root });
+        } catch (error) {
+          sendJson(response, 400, {
+            error:
+              error instanceof z.ZodError
+                ? "VALIDATION_ERROR"
+                : "MUSIC_LIBRARY_SETTINGS_FAILED",
+          });
         }
         return;
       }

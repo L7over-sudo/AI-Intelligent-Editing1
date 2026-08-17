@@ -1,12 +1,10 @@
 import path from "node:path";
 
 import { getPrisma } from "@stickmotion/db";
-import { alignTextToDuration, type SubtitleCueInput } from "@stickmotion/media";
 import type { LocalJob } from "@stickmotion/queue";
 import {
   jianyingDraftCreateOutputSchema,
   jianyingDraftGenerationInputSchema,
-  subtitleStyleSchema,
   type JianyingDraftGenerationInput,
 } from "@stickmotion/shared";
 import { LocalObjectStore } from "@stickmotion/storage";
@@ -14,7 +12,7 @@ import { LocalObjectStore } from "@stickmotion/storage";
 import { runFfmpeg } from "../services/ffmpeg-runner";
 import { createJianyingDraft } from "../services/jianying-draft";
 import { installJianyingDraft } from "../services/jianying-draft-install";
-import { findSubtitleTemplate } from "../services/subtitle-template-library";
+import { collectJianyingDraftInput } from "../services/jianying-draft-project";
 
 function getStagingRoot(): string {
   return path.resolve(process.cwd(), "../..", "work", "jianying-drafts");
@@ -47,70 +45,16 @@ export function createJianyingDraftProcessor(
     });
 
     if (input.action === "CREATE") {
-      const project = await prisma.project.findUniqueOrThrow({
-        where: { id: input.projectId },
-        include: {
-          scenes: { orderBy: { order: "asc" } },
-          renderOutputs: {
-            where: { projectRevision: input.projectRevision },
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            include: { asset: true },
-          },
-        },
-      });
-      if (project.revision !== input.projectRevision) {
-        throw new Error("PROJECT_REVISION_STALE");
-      }
-      const render = project.renderOutputs[0];
-      if (!render) throw new Error("CURRENT_RENDER_REQUIRED");
-
-      const subtitleCues: SubtitleCueInput[] = [];
-      let timelineMs = 0;
-      for (const scene of project.scenes) {
-        const sceneDurationMs = Math.round(scene.estimatedDuration * 1_000);
-        if (project.includeSubtitles) {
-          for (const cue of alignTextToDuration(
-            scene.subtitle,
-            sceneDurationMs,
-          )) {
-            subtitleCues.push({
-              ...cue,
-              startMs: timelineMs + cue.startMs,
-              endMs: Math.min(render.durationMs, timelineMs + cue.endMs),
-            });
-          }
-        }
-        timelineMs += sceneDurationMs;
-      }
-      const subtitleStyle = subtitleStyleSchema.parse(project.subtitleStyle);
-      const subtitleTemplate = await findSubtitleTemplate(
-        subtitleStyle.templateId,
+      const draftInput = await collectJianyingDraftInput(
+        input.projectId,
+        input.projectRevision,
+        objectStore,
       );
       await localJob.updateProgress(25);
       const result = await createJianyingDraft(
-        {
-          projectId: project.id,
-          projectRevision: project.revision,
-          title: project.title,
-          width: render.width,
-          height: render.height,
-          durationMs: render.durationMs,
-          video: await objectStore.get(render.asset.objectKey),
-          subtitleCues: subtitleCues.filter((cue) => cue.endMs > cue.startMs),
-          ...(subtitleTemplate
-            ? {
-                subtitleTemplate: {
-                  id: subtitleTemplate.id,
-                  name: subtitleTemplate.name,
-                  category: subtitleTemplate.category,
-                  style: subtitleTemplate.style,
-                },
-              }
-            : {}),
-        },
+        draftInput,
         ffmpegRunner,
-        path.join(getStagingRoot(), project.id),
+        path.join(getStagingRoot(), input.projectId),
       );
       if (!result) throw new Error("JIANYING_STAGING_ROOT_REQUIRED");
 

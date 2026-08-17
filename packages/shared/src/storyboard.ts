@@ -1,5 +1,7 @@
 ﻿import { z } from "zod";
 
+import type { VideoTemplate } from "./video-template";
+
 export const templateAssetIdSchema = z.enum([
   "person-standing",
   "person-pointing",
@@ -32,15 +34,7 @@ export const templateElementSchema = z
 
 export const animationSchema = z
   .object({
-    type: z.enum([
-      "NONE",
-      "FADE",
-      "SLIDE",
-      "ZOOM",
-      "PAN",
-      "BOUNCE",
-      "RISE",
-    ]),
+    type: z.enum(["NONE", "FADE", "SLIDE", "ZOOM", "PAN", "BOUNCE", "RISE"]),
     direction: z.enum(["NONE", "LEFT", "RIGHT", "UP", "DOWN", "IN", "OUT"]),
     intensity: z.number().min(0).max(1),
   })
@@ -105,30 +99,12 @@ const storyboardSceneShape = {
   animation: animationSchema,
   transition: transitionSchema,
   soundEffects: z.array(soundEffectSchema).max(5),
-  isTextOpening: z.boolean().default(false),
 } as const;
 
 export const storyboardSceneSchema = z
   .object(storyboardSceneShape)
   .strict()
   .superRefine((scene, context) => {
-    if (scene.isTextOpening) {
-      if (scene.visualPrompt.length > 0) {
-        context.addIssue({
-          code: "custom",
-          path: ["visualPrompt"],
-          message: "Text opening scenes must not have a visual prompt",
-        });
-      }
-      if (scene.templateElements.length > 0) {
-        context.addIssue({
-          code: "custom",
-          path: ["templateElements"],
-          message: "Text opening scenes must not have template elements",
-        });
-      }
-      return;
-    }
     if (scene.visualPrompt.length < 8) {
       context.addIssue({
         code: "custom",
@@ -149,11 +125,19 @@ export const storyboardSchema = z
   .object({
     title: z.string().trim().min(1).max(120),
     summary: z.string().trim().min(1).max(500),
+    // Cover copy is normalized after the storyboard response is parsed. Keep
+    // these fields permissive here so a formatting mistake from the model can
+    // never discard otherwise valid scenes.
+    coverTitle: z.string().trim().max(120).optional(),
+    coverSubtitle: z.string().trim().max(240).optional(),
     scenes: z.array(storyboardSceneSchema).min(1),
   })
   .strict();
 
-export const scenePatchSchema = z.object(storyboardSceneShape).partial().strict();
+export const scenePatchSchema = z
+  .object(storyboardSceneShape)
+  .partial()
+  .strict();
 
 export const sceneReorderSchema = z
   .object({
@@ -174,15 +158,69 @@ export type Storyboard = z.infer<typeof storyboardSchema>;
 export type StoryboardScene = z.infer<typeof storyboardSceneSchema>;
 export type ScriptGenerationInput = z.infer<typeof scriptGenerationInputSchema>;
 export type SoundEffectTag = z.infer<typeof soundEffectTagSchema>;
+export type SceneAnimation = z.infer<typeof animationSchema>;
 export type SceneTransition = z.infer<typeof transitionSchema>;
+
+const fallbackTransitionTypes = [
+  "FADE",
+  "DISSOLVE",
+  "FADE",
+  "DISSOLVE",
+] as const satisfies readonly SceneTransition["type"][];
+
+const sparsePushInterval = 6;
 
 export function applyTransitionPreference(
   transition: SceneTransition,
   enabled: boolean,
+  sceneIndex = 0,
+  sceneCount = Number.POSITIVE_INFINITY,
 ): SceneTransition {
-  return transitionSchema.parse(
-    enabled ? transition : { type: "CUT", duration: 0 },
+  if (!enabled || sceneIndex >= sceneCount - 1) {
+    return { type: "CUT", duration: 0 };
+  }
+
+  const fallbackType =
+    fallbackTransitionTypes[sceneIndex % fallbackTransitionTypes.length] ??
+    "FADE";
+  const type =
+    transition.type === "CUT" ||
+    transition.type === "PUSH" ||
+    transition.type === "ZOOM"
+      ? fallbackType
+      : transition.type;
+  const duration = Math.min(
+    1.5,
+    Math.max(0.25, transition.duration > 0 ? transition.duration : 0.35),
   );
+
+  return transitionSchema.parse({ type, duration });
+}
+
+export function applyAnimationPreference(
+  animation: SceneAnimation,
+  sceneIndex: number,
+): SceneAnimation {
+  if (animation.type === "ZOOM") {
+    return {
+      type: "FADE",
+      direction: "IN",
+      intensity: Math.min(animation.intensity, 0.35),
+    };
+  }
+  if (
+    animation.type !== "SLIDE" ||
+    animation.direction !== "LEFT" ||
+    sceneIndex % sparsePushInterval === sparsePushInterval - 1
+  ) {
+    return animation;
+  }
+
+  return {
+    type: "FADE",
+    direction: "IN",
+    intensity: Math.min(animation.intensity, 0.35),
+  };
 }
 
 export function getStoryboardDuration(storyboard: Storyboard): number {
@@ -209,80 +247,6 @@ export function estimateNarrationDuration(narration: string): number {
   return Math.max(1.5, Math.round(seconds * 10) / 10);
 }
 
-const openingSentenceBoundaryPattern = /[。.!！？?；;…]/u;
-const openingClosingMarkPattern = /[”’"'）)\]】》〉]/u;
-
-export function splitFirstSentence(
-  sourceText: string,
-): { firstSentence: string; remainingText: string } {
-  const normalized = sourceText.replace(/\r\n?/gu, "\n").trim();
-  if (!normalized) return { firstSentence: "", remainingText: "" };
-
-  const characters = Array.from(normalized);
-  let buffer = "";
-  for (let index = 0; index < characters.length; index += 1) {
-    const character = characters[index]!;
-    buffer += character;
-    if (!openingSentenceBoundaryPattern.test(character)) continue;
-    while (
-      index + 1 < characters.length &&
-      (openingSentenceBoundaryPattern.test(characters[index + 1]!) ||
-        openingClosingMarkPattern.test(characters[index + 1]!))
-    ) {
-      index += 1;
-      buffer += characters[index]!;
-    }
-    const firstSentence = buffer.trim();
-    const remainingText = characters.slice(index + 1).join("").trim();
-    return { firstSentence, remainingText };
-  }
-
-  return { firstSentence: normalized, remainingText: "" };
-}
-
-export function formatTextOpening(text: string): {
-  singleLine: string;
-  displayText: string;
-  lines: readonly string[];
-} {
-  const singleLine = text
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-  const characters = Array.from(singleLine);
-  if (characters.length <= 13) {
-    return {
-      singleLine,
-      displayText: singleLine,
-      lines: singleLine ? [singleLine] : [],
-    };
-  }
-
-  const midpoint = Math.ceil(characters.length / 2);
-  let splitAt = midpoint;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < characters.length; index += 1) {
-    if (characters[index] !== " ") continue;
-    const distance = Math.abs(index - midpoint);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      splitAt = index;
-    }
-  }
-  if (splitAt < 3 || splitAt > characters.length - 3) {
-    splitAt = midpoint;
-  }
-
-  const firstLine = characters.slice(0, splitAt).join("").trim();
-  const secondLine = characters.slice(splitAt).join("").trim();
-  const lines = [firstLine, secondLine].filter(Boolean);
-  return {
-    singleLine,
-    displayText: lines.join("\n"),
-    lines,
-  };
-}
-
 export function applyNarrationTiming(storyboard: Storyboard): Storyboard {
   return storyboardSchema.parse({
     ...storyboard,
@@ -300,11 +264,18 @@ export function createStoryboardPrompt(input: {
   language: string;
   accentColor: string;
   imagePrompt: string;
+  videoTemplate?: VideoTemplate;
 }): string {
   return [
     "Create an engaging stick-figure video storyboard.",
     `Input kind: ${input.sourceKind}.`,
-    `Aspect ratio: ${input.aspectRatio === "PORTRAIT" ? "9:16 vertical" : "16:9 horizontal"}.`,
+    `Aspect ratio: ${
+      input.videoTemplate === "KNOWLEDGE_BOARD"
+        ? "21:9 ultrawide horizontal"
+        : input.aspectRatio === "PORTRAIT"
+          ? "9:16 vertical"
+          : "16:9 horizontal"
+    }.`,
     `Narration and subtitles language: ${input.language}.`,
     `Visual style: minimalist black-and-white SVG stick figures with one accent color ${input.accentColor}.`,
     `User image prompt: ${input.imagePrompt}. Apply it consistently to every scene image.`,
@@ -312,8 +283,8 @@ export function createStoryboardPrompt(input: {
     "Derive the natural video length from the complete narration; never pad or truncate to a preset duration.",
     "For FULL_TEXT, cover the complete source text. For TOPIC, choose a natural script length based on the idea complexity.",
     "For FULL_TEXT, preserve the original order. Short complete sentences normally use one visual scene.",
-    "If one sentence exceeds about 32 CJK characters, split it into additional visual scenes at natural comma, colon, enumeration-comma, or semantic clause boundaries.",
-    "Do not leave a visual scene with a dense paragraph. Prefer roughly 12 to 32 CJK characters per scene while avoiding tiny fragments.",
+    "If one sentence exceeds about 28 CJK characters, split it into additional visual scenes at natural comma, colon, enumeration-comma, or semantic clause boundaries.",
+    "Do not leave a visual scene with a dense paragraph. Prefer roughly 12 to 28 CJK characters per scene while avoiding tiny fragments.",
     "For TOPIC, write a naturally punctuated script and use the same scene-density rule.",
     "Every visual scene produces exactly one visualPrompt for one image and may contain one or more punctuation-delimited subtitle cues.",
     "Do not create one image per subtitle cue.",
@@ -321,6 +292,7 @@ export function createStoryboardPrompt(input: {
     "Do not copy the storyboard text verbatim into the image. Never add logos or watermarks.",
     "Sound effects should be sparse and semantically motivated.",
     "For FULL_TEXT, preserve meaning and factual claims; do not invent facts.",
+    "Also derive a coverTitle of exactly 4 Chinese characters without punctuation, and a coverSubtitle of no more than 12 Chinese characters without punctuation. Make both directly reflect the user's copy and its central conflict.",
     "The estimatedDuration field is provisional and will be recalculated from narration after generation.",
     "",
     "USER INPUT:",

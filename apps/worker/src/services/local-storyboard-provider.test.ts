@@ -44,6 +44,28 @@ describe("LocalStoryboardProvider", () => {
     expect(
       storyboard.scenes.every((scene) => scene.estimatedDuration >= 1.5),
     ).toBe(true);
+    expect(
+      storyboard.scenes.every(
+        (scene) =>
+          scene.animation.type !== "ZOOM" &&
+          scene.transition.type !== "ZOOM" &&
+          scene.transition.type !== "PUSH",
+      ),
+    ).toBe(true);
+  });
+
+  it("uses only the fixed 21:9 ratio for knowledge-board prompts", async () => {
+    const provider = new LocalStoryboardProvider();
+    const storyboard = await provider.generate({
+      ...request,
+      sourceText: "知识板分镜。",
+      aspectRatio: "LANDSCAPE",
+      videoTemplate: "KNOWLEDGE_BOARD",
+    });
+
+    const prompt = storyboard.scenes[0]?.visualPrompt ?? "";
+    expect(prompt).toContain("21:9");
+    expect(prompt).not.toContain("16:9");
   });
 
   it("does not merge short sentences to reduce the scene count", async () => {
@@ -108,7 +130,7 @@ describe("LocalStoryboardProvider", () => {
     );
     expect(
       storyboard.scenes.every(
-        (scene) => Array.from(scene.narration).length <= 40,
+        (scene) => Array.from(scene.narration).length <= 28,
       ),
     ).toBe(true);
     expect(storyboard.scenes[0]?.subtitle).toBe(
@@ -136,7 +158,7 @@ describe("LocalStoryboardProvider", () => {
     );
     expect(
       storyboard.scenes.every(
-        (scene) => Array.from(scene.narration).length <= 32,
+        (scene) => Array.from(scene.narration).length <= 28,
       ),
     ).toBe(true);
   });

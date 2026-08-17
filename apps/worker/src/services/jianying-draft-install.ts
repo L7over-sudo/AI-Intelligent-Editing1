@@ -185,8 +185,18 @@ export async function installJianyingDraft(input: {
   await verifyInitialCopy(stagingPath, installedPath);
   await rewriteDraftPaths(stagingPath, installedPath);
 
-  const sourceVideo = path.join(stagingPath, "materials", "remix.mp4");
-  const installedVideo = path.join(installedPath, "materials", "remix.mp4");
+  const referencedVideo = contentSchema.parse(
+    JSON.parse(await readFile(path.join(stagingPath, "draft_content.json"), "utf8")) as unknown,
+  ).materials.videos[0]!.path;
+  const relativeVideo = path.relative(
+    normalizePath(stagingPath),
+    normalizePath(referencedVideo),
+  );
+  if (relativeVideo.startsWith("..") || path.isAbsolute(relativeVideo)) {
+    throw new Error("JIANYING_DRAFT_VIDEO_PATH_INVALID");
+  }
+  const sourceVideo = path.join(stagingPath, relativeVideo);
+  const installedVideo = path.join(installedPath, relativeVideo);
   const [sourceHash, installedHash] = await Promise.all([
     fileHash(sourceVideo),
     fileHash(installedVideo),

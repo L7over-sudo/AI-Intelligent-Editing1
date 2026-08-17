@@ -1,11 +1,10 @@
 import { Audio } from "@remotion/media";
 import { TransitionSeries, linearTiming } from "@remotion/transitions";
-import { dissolve } from "@remotion/transitions/dissolve";
 import { fade } from "@remotion/transitions/fade";
-import { slide } from "@remotion/transitions/slide";
-import { zoomInOut } from "@remotion/transitions/zoom-in-out";
 import {
+  getKnowledgeBoardHeaderDecorationLayout,
   getKnowledgeBoardLayout,
+  KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM,
   remotionRenderInputSchema,
   type RemotionRenderInput,
 } from "@stickmotion/shared";
@@ -23,8 +22,11 @@ import {
 
 import {
   calculateSceneDurationInFrames,
+  calculateSceneStartFrame,
+  calculateSceneTimelineDurationInFrames,
   calculateTransitionDurationInFrames,
 } from "./timing";
+import { narrationVolumeAtFrame } from "./audio-envelope";
 
 type Scene = RemotionRenderInput["scenes"][number];
 
@@ -60,93 +62,6 @@ function verticalTextGroups(value: string | undefined): string[][] {
   }
   if (current.length > 0) groups.push(current);
   return groups;
-}
-
-const RED_OPENING_COLOR = "#BE2426";
-
-function RedTextOpening({
-  text,
-  fps,
-}: {
-  text: string;
-  fps: number;
-}) {
-  const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
-  const entranceFrames = Math.min(15, Math.round(fps * 0.5));
-  const scale = interpolate(
-    frame,
-    [0, entranceFrames * 0.4, entranceFrames * 0.95, entranceFrames * 1.35],
-    [0.35, 1.28, 1.03, 1],
-    clamp,
-  );
-  const translateY = interpolate(
-    frame,
-    [0, entranceFrames],
-    [height * 0.045, 0],
-    clamp,
-  );
-  const opacity = interpolate(
-    frame,
-    [0, Math.max(1, entranceFrames * 0.3)],
-    [0.6, 1],
-    clamp,
-  );
-  const glow = interpolate(
-    frame,
-    [0, entranceFrames * 0.4, entranceFrames, entranceFrames * 1.4],
-    [0, 1, 0.35, 0.3],
-    clamp,
-  );
-  const lines = text.split("\n").filter((line) => line.length > 0);
-  const longestLineLength = Math.max(
-    1,
-    ...lines.map((line) => Array.from(line).length),
-  );
-  const baseFontSize = Math.round(Math.min(width, height) * 0.11);
-  const widthFontSize = Math.floor((width * 0.86) / longestLineLength);
-  const heightFontSize = Math.floor(
-    (height * 0.46) / Math.max(1, lines.length * 1.35),
-  );
-  const fontSize = Math.max(
-    28,
-    Math.min(baseFontSize, widthFontSize, heightFontSize),
-  );
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        opacity,
-        transform: `translate3d(0, ${translateY}px, 0) scale(${scale})`,
-      }}
-    >
-      <div
-        style={{
-          width: "86%",
-          textAlign: "center",
-          color: RED_OPENING_COLOR,
-          fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
-          fontWeight: 900,
-          fontSize,
-          lineHeight: 1.35,
-          letterSpacing: "0.02em",
-          whiteSpace: "pre-line",
-          textShadow: `0 ${Math.round(6 + 8 * glow)}px ${Math.round(
-            18 + 62 * glow,
-          )}px rgba(255,${Math.round(92 - 46 * glow)},${Math.round(
-            90 - 52 * glow,
-          )},${0.35 + 0.55 * glow})`,
-        }}
-      >
-        {text}
-      </div>
-    </div>
-  );
 }
 
 function sceneTransform(
@@ -245,6 +160,54 @@ function sceneTransform(
   return { transform: "scale(1.015)" };
 }
 
+function knowledgeBoardSceneAppearance(
+  scene: Scene,
+  frame: number,
+  durationInFrames: number,
+  fps: number,
+): CSSProperties {
+  return sceneTransform(scene, frame, durationInFrames, fps);
+}
+
+const KnowledgeBoardSceneImage = ({
+  scene,
+  frame,
+  durationInFrames,
+  fps,
+}: {
+  scene: Scene;
+  frame: number;
+  durationInFrames: number;
+  fps: number;
+}) => {
+  const source = staticFile(scene.imageFile);
+  return (
+    <>
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          backgroundImage: `url(${JSON.stringify(source)})`,
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "contain",
+          ...knowledgeBoardSceneAppearance(scene, frame, durationInFrames, fps),
+        }}
+      />
+      <Img
+        src={source}
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
+    </>
+  );
+};
+
 function subtitlePosition(
   position: RemotionRenderInput["subtitleStyle"]["position"],
 ): CSSProperties {
@@ -280,15 +243,46 @@ function subtitleAppearance(
   };
 }
 
-const SceneAudioLayers = ({
+const NarrationAudio = ({
   scene,
   fps,
+  narrationVolume,
 }: {
   scene: Scene;
   fps: number;
+  narrationVolume: number;
+}) => {
+  const frame = useCurrentFrame();
+  if (!scene.voiceFile) return null;
+  const durationInFrames = calculateSceneDurationInFrames(
+    scene.durationMs,
+    fps,
+  );
+  const volume =
+    narrationVolumeAtFrame(frame, durationInFrames, fps) * narrationVolume;
+  return (
+    <Audio
+      src={staticFile(scene.voiceFile)}
+      volume={volume}
+    />
+  );
+};
+
+const SceneAudioLayers = ({
+  scene,
+  fps,
+  narrationVolume,
+}: {
+  scene: Scene;
+  fps: number;
+  narrationVolume: number;
 }) => (
   <>
-    {scene.voiceFile ? <Audio src={staticFile(scene.voiceFile)} /> : null}
+    <NarrationAudio
+      scene={scene}
+      fps={fps}
+      narrationVolume={narrationVolume}
+    />
     {scene.soundEffects.map((effect, index) => (
       <Sequence
         key={`${effect.file}-${effect.offsetMs}-${index}`}
@@ -306,9 +300,11 @@ const SceneAudioLayers = ({
 const KnowledgeBoardMedia = ({
   scene,
   fps,
+  narrationVolume,
 }: {
   scene: Scene;
   fps: number;
+  narrationVolume: number;
 }) => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
@@ -331,23 +327,18 @@ const KnowledgeBoardMedia = ({
           overflow: "hidden",
         }}
       >
-        <Img
-          src={staticFile(scene.imageFile)}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            ...sceneTransform(scene, frame, durationInFrames, fps),
-          }}
-        />
-      </div>
-      {scene.isTextOpening ? (
-        <RedTextOpening
-          text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
+        <KnowledgeBoardSceneImage
+          scene={scene}
+          frame={frame}
+          durationInFrames={durationInFrames}
           fps={fps}
         />
-      ) : null}
-      <SceneAudioLayers scene={scene} fps={fps} />
+      </div>
+      <SceneAudioLayers
+        scene={scene}
+        fps={fps}
+        narrationVolume={narrationVolume}
+      />
     </AbsoluteFill>
   );
 };
@@ -378,32 +369,47 @@ const KnowledgeBoardChrome = ({
     (cue) => currentMs >= cue.startMs && currentMs < cue.endMs,
   );
   const layout = getKnowledgeBoardLayout(width, height);
+  const titleText = subtitleStyle.mainTitle?.trim() ?? "";
+  const titleFontSize = Math.max(
+    28,
+    Math.min(
+      layout.title.fontSize,
+      Math.floor(
+        (width * 0.72) / (Math.max(1, Array.from(titleText).length) * 0.95),
+      ),
+    ),
+  );
   const headerFontSize = Math.max(
     18,
     Math.min(
       layout.header.fontSize,
       Math.floor(
-        (width * 0.84) / (Math.max(1, Array.from(headerText).length) * 0.92),
+        (width * 0.84) /
+          (Math.max(1, Array.from(headerText).length) * 0.92 +
+            Math.max(0, Array.from(headerText).length - 1) *
+              KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM),
       ),
     ),
   );
-  const subtitleFontSize = Math.min(
-    subtitleStyle.fontSize,
-    Math.round(height * (height > width ? 0.04 : 0.058)),
+  const headerDecoration = getKnowledgeBoardHeaderDecorationLayout(
+    width,
+    headerText,
+    headerFontSize,
   );
-  const sideTextFontSize = Math.round(height * 0.038);
+  const subtitleFontSize = subtitleStyle.fontSize;
+  const sideTextFontSize = Math.max(16, Math.round(height * 0.028));
   const leftSideGroups = verticalTextGroups(
-    subtitleStyle.leftVerticalText ?? "@杰研社进化论",
+    subtitleStyle.leftVerticalText ?? "无限进化的Jay",
   );
   const rightSideGroups = verticalTextGroups(
     subtitleStyle.rightVerticalText ?? "个人观点\n\n无不良引导",
   );
-  const sideCharGap = Math.round(sideTextFontSize * 0.65);
-  const rightSideCharGap = Math.round(sideTextFontSize * 0.5);
+  const sideCharGap = Math.round(sideTextFontSize * 0.25);
+  const rightSideCharGap = Math.round(sideTextFontSize * 0.25);
   const sideTextStyle: CSSProperties = {
     position: "absolute",
     top: "22%",
-    height: "56%",
+    height: "55%",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -411,21 +417,23 @@ const KnowledgeBoardChrome = ({
     fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
     fontWeight: 700,
     fontSize: sideTextFontSize,
-    lineHeight: 1.1,
-    letterSpacing: "0.02em",
+    lineHeight: 1,
+    letterSpacing: 0,
     userSelect: "none",
   };
   const leftSideTextStyle: CSSProperties = {
     ...sideTextStyle,
     left: "3.125%",
     color: "#CCCCCC",
-    gap: sideCharGap,
+    gap: sideTextFontSize,
+    transform: "translateX(-50%)",
   };
   const rightSideTextStyle: CSSProperties = {
     ...sideTextStyle,
     right: "3.125%",
     color: "#CCCCCC",
     gap: sideTextFontSize,
+    transform: "translateX(50%)",
   };
   const leftSideGroupStyle: CSSProperties = {
     display: "flex",
@@ -441,22 +449,44 @@ const KnowledgeBoardChrome = ({
   };
   return (
     <AbsoluteFill style={{ color: "#111", overflow: "hidden" }}>
+      {titleText ? (
+        <div
+          style={{
+            position: "absolute",
+            top: layout.title.top,
+            left: "8%",
+            right: "8%",
+            height: layout.title.height,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#000000",
+            fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
+            fontSize: titleFontSize,
+            fontWeight: 800,
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {titleText}
+        </div>
+      ) : null}
       {headerText ? (
         <div
           style={{
             position: "absolute",
-            top: "6.5%",
-            left: "5%",
-            right: "5%",
-            height: "5%",
+            top: layout.header.top,
+            left: "12%",
+            right: "12%",
+            height: layout.header.height,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#090909",
+            color: "#797979",
             fontFamily: '"DouyinSansBold", "Microsoft YaHei", sans-serif',
-            fontSize: Math.min(headerFontSize, Math.round(height * 0.038)),
-            fontWeight: 800,
-            letterSpacing: "0.2em",
+            fontSize: headerFontSize,
+            fontWeight: 700,
+            letterSpacing: `${KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM}em`,
             whiteSpace: "nowrap",
           }}
         >
@@ -476,21 +506,21 @@ const KnowledgeBoardChrome = ({
       <div
         style={{
           position: "absolute",
-          top: "13%",
-          left: "21.3%",
-          width: Math.round(width * 0.022),
-          height: Math.max(3, Math.round(height * 0.004)),
-          backgroundColor: "rgba(0,0,0,0.75)",
+          top: Math.round(layout.header.top + layout.header.height * 0.5),
+          left: headerDecoration.leftDashX,
+          width: headerDecoration.dashWidth,
+          height: Math.max(2, Math.round(height * 0.0025)),
+          backgroundColor: "#787878",
         }}
       />
       <div
         style={{
           position: "absolute",
-          top: "13%",
-          right: "21.3%",
-          width: Math.round(width * 0.022),
-          height: Math.max(3, Math.round(height * 0.004)),
-          backgroundColor: "rgba(0,0,0,0.75)",
+          top: Math.round(layout.header.top + layout.header.height * 0.5),
+          left: headerDecoration.rightDashX,
+          width: headerDecoration.dashWidth,
+          height: Math.max(2, Math.round(height * 0.0025)),
+          backgroundColor: "#787878",
         }}
       />
       <div style={leftSideTextStyle}>
@@ -521,7 +551,7 @@ const KnowledgeBoardChrome = ({
           </div>
         ))}
       </div>
-      {activeCue && !scene.isTextOpening ? (
+      {activeCue ? (
         <div
           style={{
             position: "absolute",
@@ -539,12 +569,14 @@ const KnowledgeBoardChrome = ({
             letterSpacing: "0.01em",
           }}
         >
-          <span
-            style={{
-              maxWidth: layout.subtitle.maxWidth,
-              ...subtitleAppearance(
-                { ...subtitleStyle, shadow: false },
-                "#FFFFFF",
+            <span
+              style={{
+                maxWidth: layout.subtitle.maxWidth,
+                display: "inline-block",
+                whiteSpace: "nowrap",
+                ...subtitleAppearance(
+                  { ...subtitleStyle, shadow: false },
+                  "#FFFFFF",
               ),
             }}
           >
@@ -576,12 +608,14 @@ const SceneLayer = ({
   watermark,
   videoTemplate,
   headerText,
+  narrationVolume,
 }: {
   scene: Scene;
   subtitleStyle: RemotionRenderInput["subtitleStyle"];
   watermark: string;
   videoTemplate: RemotionRenderInput["videoTemplate"];
   headerText: string;
+  narrationVolume: number;
 }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -595,7 +629,11 @@ const SceneLayer = ({
   );
   const audioLayers = (
     <>
-      {scene.voiceFile ? <Audio src={staticFile(scene.voiceFile)} /> : null}
+      <NarrationAudio
+        scene={scene}
+        fps={fps}
+        narrationVolume={narrationVolume}
+      />
       {scene.soundEffects.map((effect, index) => (
         <Sequence
           key={`${effect.file}-${effect.offsetMs}-${index}`}
@@ -616,20 +654,19 @@ const SceneLayer = ({
       Math.min(
         layout.header.fontSize,
         Math.floor(
-          (width * 0.84) / (Math.max(1, Array.from(headerText).length) * 0.92),
+          (width * 0.84) /
+            (Math.max(1, Array.from(headerText).length) * 0.92 +
+              Math.max(0, Array.from(headerText).length - 1) *
+                KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM),
         ),
       ),
     );
-    const subtitleFontSize = Math.min(
-      subtitleStyle.fontSize,
-      Math.round(height * (height > width ? 0.038 : 0.055)),
-    );
+    const subtitleFontSize = subtitleStyle.fontSize;
 
     return (
       <AbsoluteFill
         style={{
-          background:
-            "radial-gradient(circle at 50% 38%, #ffffff 0%, #fdfdfc 68%, #f7f7f5 100%)",
+          backgroundColor: "#FFFFFF",
           color: "#111",
           overflow: "hidden",
         }}
@@ -649,7 +686,7 @@ const SceneLayer = ({
               fontFamily: '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
               fontSize: headerFontSize,
               fontWeight: 800,
-              letterSpacing: "0.2em",
+              letterSpacing: `${KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM}em`,
               whiteSpace: "nowrap",
             }}
           >
@@ -668,14 +705,11 @@ const SceneLayer = ({
             overflow: "hidden",
           }}
         >
-          <Img
-            src={staticFile(scene.imageFile)}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              ...sceneTransform(scene, frame, durationInFrames, fps),
-            }}
+          <KnowledgeBoardSceneImage
+            scene={scene}
+            frame={frame}
+            durationInFrames={durationInFrames}
+            fps={fps}
           />
         </div>
         <div
@@ -688,7 +722,7 @@ const SceneLayer = ({
             backgroundColor: "#111",
           }}
         />
-        {activeCue && !scene.isTextOpening ? (
+        {activeCue ? (
           <div
             style={{
               position: "absolute",
@@ -709,6 +743,8 @@ const SceneLayer = ({
             <span
               style={{
                 maxWidth: layout.subtitle.maxWidth,
+                display: "inline-block",
+                whiteSpace: "nowrap",
                 ...subtitleAppearance(subtitleStyle, "#111111"),
               }}
             >
@@ -730,12 +766,6 @@ const SceneLayer = ({
             {watermark}
           </div>
         ) : null}
-        {scene.isTextOpening ? (
-          <RedTextOpening
-            text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
-            fps={fps}
-          />
-        ) : null}
         {audioLayers}
       </AbsoluteFill>
     );
@@ -753,7 +783,7 @@ const SceneLayer = ({
         }}
       />
       {audioLayers}
-      {activeCue && !scene.isTextOpening ? (
+      {activeCue ? (
         <div
           style={{
             position: "absolute",
@@ -763,18 +793,13 @@ const SceneLayer = ({
             fontSize: subtitleStyle.fontSize,
             lineHeight: 1.35,
             letterSpacing: "0.02em",
+            whiteSpace: "nowrap",
             ...subtitleAppearance(subtitleStyle, "#FFFFFF"),
             ...subtitlePosition(subtitleStyle.position),
           }}
         >
           {activeCue.text}
         </div>
-      ) : null}
-      {scene.isTextOpening ? (
-        <RedTextOpening
-          text={scene.openingText ?? scene.subtitleCues[0]?.text ?? ""}
-          fps={fps}
-        />
       ) : null}
       {watermark ? (
         <div
@@ -799,33 +824,6 @@ function transitionNode(scene: Scene, fps: number, key: string): ReactNode {
   if (durationInFrames === 0) return null;
   const timing = linearTiming({ durationInFrames });
 
-  if (scene.transition.type === "PUSH") {
-    return (
-      <TransitionSeries.Transition
-        key={key}
-        presentation={slide({ direction: "from-right" })}
-        timing={timing}
-      />
-    );
-  }
-  if (scene.transition.type === "ZOOM") {
-    return (
-      <TransitionSeries.Transition
-        key={key}
-        presentation={zoomInOut({})}
-        timing={timing}
-      />
-    );
-  }
-  if (scene.transition.type === "DISSOLVE") {
-    return (
-      <TransitionSeries.Transition
-        key={key}
-        presentation={dissolve({ intensity: 0.8 })}
-        timing={timing}
-      />
-    );
-  }
   return (
     <TransitionSeries.Transition
       key={key}
@@ -835,28 +833,39 @@ function transitionNode(scene: Scene, fps: number, key: string): ReactNode {
   );
 }
 
+function hasRenderedTransition(scene: Scene): boolean {
+  return scene.transition.type !== "CUT";
+}
+
 export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
   const input = remotionRenderInputSchema.parse(rawProps);
   const timeline: ReactNode[] = [];
   const chromeTimeline: ReactNode[] = [];
-  let chromeStartFrame = 0;
   const knowledgeBoard = input.videoTemplate === "KNOWLEDGE_BOARD";
 
   input.scenes.forEach((scene, index) => {
+    const sceneDurationInFrames = calculateSceneTimelineDurationInFrames(
+      input.scenes,
+      index,
+      input.fps,
+    );
     const outgoingTransition =
-      index < input.scenes.length - 1
+      index < input.scenes.length - 1 && hasRenderedTransition(scene)
         ? calculateTransitionDurationInFrames(scene, input.fps)
         : 0;
     timeline.push(
       <TransitionSeries.Sequence
         key={`scene-${index}`}
         durationInFrames={
-          calculateSceneDurationInFrames(scene.durationMs, input.fps) +
-          outgoingTransition
+          sceneDurationInFrames + outgoingTransition
         }
       >
         {knowledgeBoard ? (
-          <KnowledgeBoardMedia scene={scene} fps={input.fps} />
+          <KnowledgeBoardMedia
+            scene={scene}
+            fps={input.fps}
+            narrationVolume={input.narrationVolume}
+          />
         ) : (
           <SceneLayer
             scene={scene}
@@ -864,19 +873,16 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
             watermark={input.watermark}
             videoTemplate={input.videoTemplate}
             headerText={input.headerText}
+            narrationVolume={input.narrationVolume}
           />
         )}
       </TransitionSeries.Sequence>,
     );
     if (knowledgeBoard) {
-      const sceneDurationInFrames = calculateSceneDurationInFrames(
-        scene.durationMs,
-        input.fps,
-      );
       chromeTimeline.push(
         <Sequence
           key={`chrome-${index}`}
-          from={chromeStartFrame}
+          from={calculateSceneStartFrame(input.scenes, index, input.fps)}
           durationInFrames={sceneDurationInFrames}
         >
           <KnowledgeBoardChrome
@@ -887,7 +893,6 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
           />
         </Sequence>,
       );
-      chromeStartFrame += sceneDurationInFrames;
     }
     if (index < input.scenes.length - 1) {
       const transition = transitionNode(
@@ -912,6 +917,12 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
           src={staticFile(input.backgroundMusicFile)}
           volume={input.backgroundMusicVolume}
           loop
+        />
+      ) : null}
+      {input.narrationFile ? (
+        <Audio
+          src={staticFile(input.narrationFile)}
+          volume={input.narrationVolume}
         />
       ) : null}
       <TransitionSeries>{timeline}</TransitionSeries>

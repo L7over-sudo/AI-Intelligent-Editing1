@@ -1,9 +1,50 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "DouyinSansBold";
+  src: url("/fonts/DouyinSansBold.otf") format("opentype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 700 900;
+}
+
+.audio-volume-slider {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+
+.audio-volume-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.audio-volume-slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  appearance: none;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #16bec8;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+}
+
+.audio-volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #16bec8;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+}
+
 @theme {
   --color-ink: #171717;
-  --color-paper: #f6f3ec;
-  --color-accent: #ff5c35;
+  --color-paper: #f3f8ff;
+  --color-accent: #ee86aa;
   --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -24,9 +65,116 @@ body {
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 18% 0%, rgb(255 92 53 / 12%), transparent 28rem),
+    radial-gradient(circle at 12% 0%, rgb(238 134 170 / 18%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, rgb(104 150 235 / 14%), transparent 30rem),
     var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
 
+/* Pink-white-blue workspace theme: pink for action, blue for structure, white for rest. */
+.pink-blue-theme {
+  --pb-blue: #648fe5;
+  --pb-blue-deep: #4168a7;
+  --pb-blue-soft: #edf5ff;
+  --pb-pink: #ee86aa;
+  --pb-pink-soft: #fff0f6;
+  --pb-border: #dbe7f7;
+  --pb-ink: #263957;
+}
+
+.pink-blue-theme [class~="bg-[#e7edef]"] {
+  background-color: #edf5ff !important;
+}
+
+.pink-blue-theme [class~="bg-[#f2f5f6]"],
+.pink-blue-theme [class~="bg-[#f6f8f9]"],
+.pink-blue-theme [class~="bg-[#f1f4f5]"] {
+  background-color: #f3f7ff !important;
+}
+
+.pink-blue-theme [class~="bg-[#11151b]"] {
+  background-color: var(--pb-blue-deep) !important;
+}
+
+.pink-blue-theme [class~="bg-cyan-50"],
+.pink-blue-theme [class~="bg-cyan-100"] {
+  background-color: var(--pb-blue-soft) !important;
+}
+
+.pink-blue-theme [class~="bg-violet-50"] {
+  background-color: var(--pb-pink-soft) !important;
+}
+
+.pink-blue-theme [class~="text-[#20252b]"],
+.pink-blue-theme [class~="text-[#303740]"],
+.pink-blue-theme [class~="text-[#14191f]"] {
+  color: var(--pb-ink) !important;
+}
+
+.pink-blue-theme [class~="text-[#159aa6]"],
+.pink-blue-theme [class~="text-[#0f8791]"],
+.pink-blue-theme [class~="text-[#148f99]"],
+.pink-blue-theme [class~="text-[#477cff]"],
+.pink-blue-theme [class~="text-violet-600"] {
+  color: var(--pb-blue-deep) !important;
+}
+
+.pink-blue-theme [class~="border-[#16bec8]"],
+.pink-blue-theme [class~="border-[#14bdc7]"],
+.pink-blue-theme [class~="focus:border-[#16bec8]"]:focus,
+.pink-blue-theme [class~="focus:border-[#19b9c6]"]:focus {
+  border-color: var(--pb-blue) !important;
+}
+
+.pink-blue-theme [class~="bg-[#16bec8]"],
+.pink-blue-theme [class~="bg-[#14bdc7]"],
+.pink-blue-theme [class~="bg-[#19b9c6]"] {
+  background-color: var(--pb-blue) !important;
+}
+
+.pink-blue-theme [class~="bg-[#16bec8]"] {
+  color: white !important;
+}
+
+.pink-blue-theme [class~="border-[#16bec8]/30"],
+.pink-blue-theme [class~="border-[#16bec8]/70"],
+.pink-blue-theme [class~="hover:border-[#16bec8]/40"]:hover,
+.pink-blue-theme [class~="hover:border-[#16bec8]/50"]:hover {
+  border-color: rgb(100 143 229 / 55%) !important;
+}
+
+.pink-blue-theme [class~="ring-cyan-100"],
+.pink-blue-theme [class~="focus:ring-cyan-200"]:focus {
+  --tw-ring-color: rgb(100 143 229 / 22%) !important;
+}
+
+.pink-blue-theme [class~="border-black/[0.04]"],
+.pink-blue-theme [class~="border-black/[0.05]"],
+.pink-blue-theme [class~="border-black/[0.06]"],
+.pink-blue-theme [class~="border-black/[0.07]"],
+.pink-blue-theme [class~="border-black/[0.08]"] {
+  border-color: var(--pb-border) !important;
+}
+
+.pink-blue-theme [class~="text-black/25"],
+.pink-blue-theme [class~="text-black/35"],
+.pink-blue-theme [class~="text-black/40"],
+.pink-blue-theme [class~="text-black/45"] {
+  color: #8190a8 !important;
+}
+
+.message-copy-button {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .message-copy-button {
+    opacity: 0;
+  }
+
+  .message-copy-group:hover .message-copy-button,
+  .message-copy-group:focus-within .message-copy-button {
+    opacity: 1;
+  }
+}

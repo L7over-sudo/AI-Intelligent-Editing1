@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getKnowledgeBoardLayout } from "./video-template";
+import {
+  getKnowledgeBoardHeaderDecorationLayout,
+  getKnowledgeBoardLayout,
+} from "./video-template";
 
 describe("knowledge board video template", () => {
   it.each([
@@ -11,6 +14,9 @@ describe("knowledge board video template", () => {
     (width, height) => {
       const layout = getKnowledgeBoardLayout(width, height);
 
+      expect(layout.title.top + layout.title.height).toBeLessThanOrEqual(
+        layout.header.top,
+      );
       expect(layout.image.top).toBeGreaterThan(
         layout.header.top + layout.header.height,
       );
@@ -24,6 +30,33 @@ describe("knowledge board video template", () => {
       expect(layout.image.width / width).toBeCloseTo(0.86, 2);
     },
   );
+
+  it("matches the Jianying preset 34 landscape proportions", () => {
+    const layout = getKnowledgeBoardLayout(1920, 1080);
+
+    expect(layout.title.top / 1080).toBeCloseTo(0.025, 3);
+    expect(layout.header.top / 1080).toBeCloseTo(0.145, 3);
+    expect(layout.image.top / 1080).toBeCloseTo(0.213, 3);
+    expect(layout.dividerY / 1080).toBeCloseTo(0.815, 3);
+  });
+
+  it("places header dashes close to the editable text", () => {
+    const decoration = getKnowledgeBoardHeaderDecorationLayout(
+      1920,
+      "THINKING|COMMUNICATION|CAREER|GROWTH",
+      38,
+    );
+    const textLeft = 960 - decoration.estimatedTextWidth / 2;
+    const textRight = 960 + decoration.estimatedTextWidth / 2;
+
+    expect(
+      textLeft - (decoration.leftDashX + decoration.dashWidth),
+    ).toBeCloseTo(decoration.gap, 0);
+    expect(decoration.rightDashX - textRight).toBeCloseTo(
+      decoration.gap,
+      0,
+    );
+  });
 
   it("rejects invalid canvas dimensions", () => {
     expect(() => getKnowledgeBoardLayout(200, 200)).toThrow(

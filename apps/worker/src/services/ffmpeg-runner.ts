@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 export async function runFfmpeg(
   args: readonly string[],
   onProgress: (outTimeMs: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(process.env.FFMPEG_PATH ?? "ffmpeg", [...args], {
@@ -10,6 +11,19 @@ export async function runFfmpeg(
       stdio: ["ignore", "ignore", "pipe"],
     });
     let stderrTail = "";
+
+    const onAbort = () => {
+      child.kill();
+      reject(new Error("FFMPEG_CANCELED"));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        child.kill();
+        reject(new Error("FFMPEG_CANCELED"));
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -19,8 +33,12 @@ export async function runFfmpeg(
         if (match?.[1]) onProgress(Math.round(Number(match[1]) / 1_000));
       }
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(error);
+    });
     child.on("exit", (code) => {
+      signal?.removeEventListener("abort", onAbort);
       if (code === 0) resolve();
       else
         reject(
@@ -31,4 +49,3 @@ export async function runFfmpeg(
     });
   });
 }
-

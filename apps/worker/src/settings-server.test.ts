@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  musicLibrarySettingsInputSchema,
   openAISettingsInputSchema,
   parseEnvFile,
   updateEnvFile,
@@ -23,13 +24,12 @@ describe("worker-only API settings", () => {
   it("accepts valid gpt-image-2 and 1K settings", () => {
     const parsed = openAISettingsInputSchema.parse({
       clearApiKey: false,
+      apiBaseUrl: "https://api.openai.com/v1",
       clearImageApiKey: false,
       imageApiBaseUrl: "https://www.hfsyapi.cn",
       imageModel: "gpt-image-2",
       imageSize: "1K",
       scriptModel: "gpt-4.1-mini",
-      ttsModel: "gpt-4o-mini-tts",
-      transcribeModel: "gpt-4o-mini-transcribe",
     });
     expect(parsed.imageApiKey).toBeUndefined();
     expect(parseEnvFile("IMAGE_API_KEY=secret\n").get("IMAGE_API_KEY")).toBe(
@@ -37,18 +37,40 @@ describe("worker-only API settings", () => {
     );
   });
 
+  it("accepts a music library root and persists it in the env file", () => {
+    const root = "E:\\codex\\素材库\\音乐库";
+    expect(musicLibrarySettingsInputSchema.parse({ root }).root).toBe(root);
+    expect(updateEnvFile("IMAGE_API_KEY=secret\n", { MUSIC_LIBRARY_ROOT: root })).toContain(
+      `MUSIC_LIBRARY_ROOT=${root}`,
+    );
+  });
+
   it("rejects unsupported model and resolution combinations", () => {
     expect(() =>
       openAISettingsInputSchema.parse({
         clearApiKey: false,
+        apiBaseUrl: "https://api.openai.com/v1",
         clearImageApiKey: false,
         imageApiBaseUrl: "https://www.hfsyapi.cn",
         imageModel: "gpt-image-2pro",
         imageSize: "1K",
         scriptModel: "gpt-4.1-mini",
-        ttsModel: "gpt-4o-mini-tts",
-        transcribeModel: "gpt-4o-mini-transcribe",
       }),
     ).toThrow();
   });
+
+  it("accepts the combined GPT 1K/2K/4K template", () => {
+    const parsed = openAISettingsInputSchema.parse({
+      clearApiKey: false,
+      apiBaseUrl: "https://api.openai.com/v1",
+      clearImageApiKey: false,
+      imageApiBaseUrl: "https://www.hfsyapi.cn",
+      imageModel: "gpt-image-2-template",
+      imageSize: "4K",
+      scriptModel: "gpt-4.1-mini",
+    });
+    expect(parsed.imageModel).toBe("gpt-image-2-template");
+    expect(parsed.imageSize).toBe("4K");
+  });
+
 });

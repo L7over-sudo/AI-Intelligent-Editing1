@@ -55,9 +55,22 @@ export async function GET(
     const bytes = await objectStore.get(asset.objectKey);
     const mediaSize = bytes.byteLength;
     const download = new URL(request.url).searchParams.get("download") === "1";
+    const extensionByType: Record<string, string> = {
+      "audio/aac": "aac",
+      "audio/flac": "flac",
+      "audio/mpeg": "mp3",
+      "audio/mp4": "m4a",
+      "audio/wav": "wav",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "text/plain": "txt",
+      "video/mp4": "mp4",
+    };
+    const downloadName = `stickmotion-${asset.id}.${extensionByType[asset.contentType] ?? "bin"}`;
     const commonHeaders = {
       "content-type": asset.contentType,
-      "content-disposition": `${download ? "attachment" : "inline"}; filename="stickmotion-${asset.id}"`,
+      "content-disposition": `${download ? "attachment" : "inline"}; filename="${downloadName}"`,
       "cache-control": "private, no-store",
       "accept-ranges": "bytes",
     };

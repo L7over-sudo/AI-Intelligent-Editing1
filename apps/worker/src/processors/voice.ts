@@ -1,32 +1,299 @@
 import type { LocalJob } from "@stickmotion/queue";
 
 import { getPrisma } from "@stickmotion/db";
-import { cuesToAss, cuesToSrt, wavDurationMs } from "@stickmotion/media";
-import { LocalObjectStore } from "@stickmotion/storage";
 import {
+  alignSubtitleCueStartsToPcmWav,
+  alignTextToDuration,
+  capInternalSilencePcmWav,
+  concatenatePcmWav,
+  pcmWavTrailingSilenceMs,
+  slicePcmWav,
+  splitSubtitleText,
+  wavDurationMs,
+  type SubtitleCueInput,
+} from "@stickmotion/media";
+import {
+  continuousNarrationAssetMetadataSchema,
+  continuousVoiceGroupForScene,
+  joinContinuousNarration,
+  localVoiceServiceUrlSchema,
   voiceCloneReferenceMetadataSchema,
   voiceGenerationInputSchema,
   type VoiceGenerationInput,
 } from "@stickmotion/shared";
+import { LocalObjectStore } from "@stickmotion/storage";
 
 import {
-  VoxCPMAudioProvider,
-  type VoiceAudioProvider,
-} from "../services/voxcpm-audio-provider";
-import { prepareVoxCPMReference } from "../services/voxcpm-reference";
+  synthesizeIndexTTSAudio,
+  type IndexTTSAudioRequest,
+} from "../services/indextts-audio-provider";
+import { alignNarrationWithLocalWhisper } from "../services/local-whisper-aligner";
+import { createExactAudioPartitions } from "../services/voice-alignment-batches";
+
+const OBJECT_KEY_SEGMENT = /^[a-zA-Z0-9_-]{1,100}$/u;
+
+export interface VoiceSceneText {
+  narration: string;
+  subtitle: string;
+}
+
+export function voiceTextForScene(scene: VoiceSceneText): string {
+  const text = (scene.narration.trim() || scene.subtitle.trim()).trim();
+  if (!text) throw new Error("VOICE_TEXT_REQUIRED");
+  return text;
+}
+
+export function voiceAudioObjectKey(
+  projectId: string,
+  sceneId: string,
+  jobId: string,
+): string {
+  for (const segment of [projectId, sceneId, jobId]) {
+    if (!OBJECT_KEY_SEGMENT.test(segment)) {
+      throw new Error("VOICE_OBJECT_KEY_INVALID");
+    }
+  }
+  return `projects/${projectId}/voice/${sceneId}-${jobId}.wav`;
+}
+
+export function resolveVoiceServiceUrl(
+  metadataServiceUrl: string | undefined,
+  environmentServiceUrl: string | undefined,
+): string {
+  const candidate = metadataServiceUrl?.trim() || environmentServiceUrl?.trim();
+  if (!candidate) throw new Error("VOICE_PROVIDER_UNAVAILABLE");
+  return localVoiceServiceUrlSchema.parse(candidate);
+}
+
+export function voiceSubtitleCues(
+  subtitle: string,
+  durationMs: number,
+): Array<{
+  order: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  highlighted: string[];
+}> {
+  return alignTextToDuration(subtitle, durationMs, null).map((cue, order) => ({
+    order,
+    startMs: cue.startMs,
+    endMs: cue.endMs,
+    text: cue.text,
+    highlighted: [],
+  }));
+}
+
+export function finalizeSceneSubtitleCues(
+  cues: readonly SubtitleCueInput[],
+  boundaryStartMs: number,
+  durationMs: number,
+): Array<{ startMs: number; endMs: number; text: string }> {
+  const delayMs = 40;
+  return cues
+    .map((cue) => {
+      const startMs = Math.max(
+        0,
+        Math.round(cue.startMs - boundaryStartMs) + delayMs,
+      );
+      const endMs = Math.min(
+        durationMs,
+        Math.max(
+          startMs + 1,
+          Math.round(cue.endMs - boundaryStartMs) + delayMs,
+        ),
+      );
+      return { startMs, endMs, text: cue.text };
+    })
+    .filter((cue) => cue.endMs > cue.startMs && cue.startMs < durationMs);
+}
+
+export function capWavTrailingSilence(
+  audio: Uint8Array,
+  maximumTailMs = 220,
+): Uint8Array {
+  const durationMs = wavDurationMs(audio);
+  if (!durationMs || durationMs <= 0) {
+    throw new Error("INDEXTTS_AUDIO_INVALID");
+  }
+  const trailingMs = pcmWavTrailingSilenceMs(audio) ?? 0;
+  if (trailingMs <= maximumTailMs) return audio;
+  const endMs = Math.max(1, durationMs - (trailingMs - maximumTailMs));
+  return slicePcmWav(audio, 0, endMs);
+}
+
+const sceneSentenceEndPattern = /[。！？!?…][”’"'）)\]】》〉]*$/u;
+
+/**
+ * The audible pause before the next scene must never make sentence endings
+ * shorter than comma clause breaks: sentence ends keep a longer tail than
+ * comma/no-punctuation endings.
+ */
+export function maximumSceneTrailingSilenceMs(narration: string): number {
+  return sceneSentenceEndPattern.test(narration.trim()) ? 160 : 140;
+}
+
+export interface VoicePartitionBoundary {
+  startMs: number;
+  endMs: number;
+}
+
+export function proportionalSceneDurationsMs(
+  sceneTexts: readonly string[],
+  totalDurationMs: number,
+): number[] {
+  if (sceneTexts.length === 0 || totalDurationMs <= 0) {
+    throw new Error("VOICE_PARTITION_INVALID");
+  }
+  const counts = sceneTexts.map((text) =>
+    Math.max(1, Array.from(text.trim()).length),
+  );
+  const sum = counts.reduce((total, count) => total + count, 0);
+  const raw = counts.map((count) => (totalDurationMs * count) / sum);
+  const base = raw.map((value) => Math.floor(value));
+  const fractions = raw.map((value) => value - Math.floor(value));
+  const order = fractions
+    .map((fraction, index) => ({ fraction, index }))
+    .sort((left, right) => right.fraction - left.fraction);
+  const durations = [...base];
+  let remainderMs = totalDurationMs - base.reduce((a, b) => a + b, 0);
+  for (const { index } of order) {
+    if (remainderMs <= 0) break;
+    durations[index] = (durations[index] ?? 0) + 1;
+    remainderMs -= 1;
+  }
+  return durations.map((duration) => Math.max(1, duration));
+}
+
+export function sceneBoundariesFromCueStarts(
+  cueStarts: readonly (readonly number[])[],
+  totalDurationMs: number,
+): VoicePartitionBoundary[] {
+  const firstStarts = cueStarts.map((starts) => starts[0]);
+  return cueStarts.map((_, index) => {
+    // The first scene always owns the timeline head, including any leading
+    // silence in the master audio; later scenes start at their own speech
+    // onset so subtitles never lead the voice.
+    const startMs =
+      index === 0 ? 0 : Math.max(0, Math.round(firstStarts[index] ?? 0));
+    const endMs =
+      index < cueStarts.length - 1
+        ? Math.min(
+            totalDurationMs,
+            Math.max(
+              startMs + 1,
+              Math.round(firstStarts[index + 1] ?? totalDurationMs),
+            ),
+          )
+        : totalDurationMs;
+    if (endMs <= startMs) throw new Error("VOICE_PARTITION_EMPTY");
+    return { startMs, endMs };
+  });
+}
+
+interface ContinuousPartition {
+  mode: "whisper" | "fallback";
+  boundaries: VoicePartitionBoundary[];
+  cueGroups?: SubtitleCueInput[][];
+}
+
+export async function partitionContinuousVoice(
+  audio: Uint8Array,
+  sceneTexts: readonly string[],
+  align: (input: {
+    audio: Uint8Array;
+    text: string;
+    sceneTexts: readonly string[];
+  }) => SubtitleCueInput[] | Promise<SubtitleCueInput[]>,
+): Promise<ContinuousPartition> {
+  const durationMs = wavDurationMs(audio);
+  if (!durationMs || durationMs <= 0) {
+    throw new Error("INDEXTTS_AUDIO_INVALID");
+  }
+  try {
+    const rawCues = await align({
+      audio,
+      text: sceneTexts.join(""),
+      sceneTexts,
+    });
+    const cues = alignSubtitleCueStartsToPcmWav(audio, rawCues, {
+      firstSearchRadiusMs: 800,
+    });
+    const cueGroups: SubtitleCueInput[][] = [];
+    let cursor = 0;
+    for (const sceneText of sceneTexts) {
+      const cueCount = splitSubtitleText(sceneText, null).length;
+      cueGroups.push(cues.slice(cursor, cursor + cueCount));
+      cursor += cueCount;
+    }
+    if (
+      cursor !== cues.length ||
+      cueGroups.some((group) => group.length === 0)
+    ) {
+      throw new Error("ALIGN_CUE_COUNT_MISMATCH");
+    }
+    const boundaries = sceneBoundariesFromCueStarts(
+      cueGroups.map((group) => group.map((cue) => cue.startMs)),
+      durationMs,
+    );
+    return { mode: "whisper", boundaries, cueGroups };
+  } catch {
+    const durations = proportionalSceneDurationsMs(sceneTexts, durationMs);
+    const boundaries = createExactAudioPartitions(durations).map(
+      (partition) => ({
+        startMs: partition.startMs,
+        endMs: partition.endMs,
+      }),
+    );
+    return { mode: "fallback", boundaries };
+  }
+}
+
+export interface VoiceProcessorDependencies {
+  synthesize?: (request: IndexTTSAudioRequest) => Promise<Uint8Array>;
+  align?: (input: {
+    audio: Uint8Array;
+    text: string;
+    sceneTexts: readonly string[];
+  }) => SubtitleCueInput[] | Promise<SubtitleCueInput[]>;
+  objectStore?: LocalObjectStore;
+}
 
 export function createVoiceProcessor(
-  audioProvider: VoiceAudioProvider = new VoxCPMAudioProvider(),
-  objectStore = new LocalObjectStore(),
+  dependencies: VoiceProcessorDependencies = {},
 ) {
-  return async function processVoice(
-    bullJob: LocalJob<VoiceGenerationInput>,
+  const synthesize = dependencies.synthesize ?? synthesizeIndexTTSAudio;
+  const align =
+    dependencies.align ??
+    ((input: {
+      audio: Uint8Array;
+      text: string;
+      sceneTexts: readonly string[];
+    }) =>
+      alignNarrationWithLocalWhisper({
+        audio: input.audio,
+        text: input.text,
+        sceneTexts: input.sceneTexts,
+        maximumErrorRate: 0.15,
+      }));
+  const objectStore = dependencies.objectStore ?? new LocalObjectStore();
+
+  return async function processVoiceJob(
+    localJob: LocalJob<VoiceGenerationInput>,
   ): Promise<{ audioObjectKey: string }> {
-    const input = voiceGenerationInputSchema.parse(bullJob.data);
+    const input = voiceGenerationInputSchema.parse(localJob.data);
     const prisma = getPrisma();
+
     await prisma.generationJob.update({
       where: { id: input.jobId },
-      data: { status: "RUNNING", progress: 5, startedAt: new Date() },
+      data: {
+        status: "RUNNING",
+        startedAt: new Date(),
+        progress: 5,
+        events: {
+          create: { status: "RUNNING", progress: 5, code: "VOICE_STARTED" },
+        },
+      },
     });
 
     try {
@@ -35,12 +302,8 @@ export function createVoiceProcessor(
         include: {
           project: {
             include: {
+              scenes: { orderBy: { order: "asc" } },
               voiceProfile: { include: { asset: true } },
-              assets: {
-                where: { kind: "VOICE", source: "user-upload" },
-                orderBy: { createdAt: "desc" },
-                take: 20,
-              },
             },
           },
         },
@@ -51,196 +314,271 @@ export function createVoiceProcessor(
       ) {
         throw new Error("PROJECT_REVISION_STALE");
       }
-
-      const referenceAsset =
-        scene.project.voiceProfile?.asset ??
-        scene.project.assets.find(
-          (asset) =>
-            voiceCloneReferenceMetadataSchema.safeParse(asset.metadata).success,
-        );
-      if (!referenceAsset) throw new Error("VOICE_CLONE_REFERENCE_REQUIRED");
-      const reference = voiceCloneReferenceMetadataSchema.parse(
-        referenceAsset.metadata,
+      const project = scene.project;
+      const voiceProfile = project.voiceProfile;
+      if (project.voiceStyle !== "indextts2" || !voiceProfile?.asset) {
+        throw new Error("VOICE_PROVIDER_UNAVAILABLE");
+      }
+      const referenceMetadata = voiceCloneReferenceMetadataSchema.parse(
+        voiceProfile.asset.metadata,
       );
-      const preparedReference = await prepareVoxCPMReference(
-        referenceAsset.objectKey,
-        referenceAsset.id,
-        reference.promptText,
-        reference.promptLanguage,
+      const serviceUrl = resolveVoiceServiceUrl(
+        referenceMetadata.serviceUrl,
+        process.env.INDEXTTS_SERVICE_URL,
+      );
+      const referenceAudio = await objectStore.get(
+        voiceProfile.asset.objectKey,
       );
 
-      const audio = await audioProvider.generateVoice({
-        text: scene.narration,
-        referenceAudioPath: preparedReference.audioPath,
-        promptText: preparedReference.promptText,
-        serviceUrl: reference.serviceUrl,
-      });
-      await bullJob.updateProgress(55);
-
-      const durationMs = Math.max(
-        1_500,
-        wavDurationMs(audio) ?? Math.round(scene.estimatedDuration * 1_000),
+      const groupScenes = continuousVoiceGroupForScene(
+        project.scenes,
+        scene.id,
       );
-      const cues = await audioProvider.transcribeWithTimestamps(
-        audio,
-        scene.subtitle,
-        durationMs,
-      );
-      const base =
-        `projects/${scene.projectId}/revisions/${scene.project.revision}/` +
-        `scenes/${scene.id}`;
-      const [storedAudio, storedSrt, storedAss] = await Promise.all([
-        objectStore.put(`${base}/voice-${input.jobId}.wav`, audio, "audio/wav"),
-        objectStore.put(
-          `${base}/captions-${input.jobId}.srt`,
-          new TextEncoder().encode(cuesToSrt(cues)),
-          "application/x-subrip",
-        ),
-        objectStore.put(
-          `${base}/captions-${input.jobId}.ass`,
-          new TextEncoder().encode(
-            cuesToAss(
-              cues,
-              {
-                fontName: "Noto Sans CJK SC",
-                fontSize: 60,
-                primaryColor: "#FFFFFF",
-                accentColor: scene.project.accentColor,
-                outline: true,
-                shadow: true,
-                position: "BOTTOM",
-                bilingual: false,
-              },
-              scene.project.aspectRatio === "PORTRAIT"
-                ? { width: 1080, height: 1920 }
-                : { width: 1920, height: 1080 },
-            ),
-          ),
-          "text/x-ssa",
-        ),
-      ]);
+      const narration =
+        groupScenes.length > 1
+          ? joinContinuousNarration(groupScenes)
+          : voiceTextForScene(scene);
 
-      await prisma.$transaction(async (tx) => {
-        // Use upserts keyed on (bucket, objectKey) so a job retried after a
-        // worker restart does not crash on the unique constraint when the
-        // previous attempt already committed the asset rows.
-        const [audioAsset] = await Promise.all([
-          tx.asset.upsert({
-            where: {
-              bucket_objectKey: {
-                bucket: storedAudio.bucket,
-                objectKey: storedAudio.objectKey,
-              },
-            },
-            update: {
-              projectId: scene.projectId,
-              contentType: "audio/wav",
-              byteSize: storedAudio.byteSize,
-              source: "voxcpm2",
-              license: "ai-generated-with-user-consent",
-            },
+      await prisma.generationJob.update({
+        where: { id: input.jobId },
+        data: {
+          progress: 25,
+          events: {
             create: {
-              projectId: scene.projectId,
-              kind: "VOICE",
-              bucket: storedAudio.bucket,
-              objectKey: storedAudio.objectKey,
-              byteSize: storedAudio.byteSize,
-              contentType: "audio/wav",
-              source: "voxcpm2",
-              license: "ai-generated-with-user-consent",
+              status: "RUNNING",
+              progress: 25,
+              code: "VOICE_SYNTHESIZING",
             },
-          }),
-          tx.asset.upsert({
-            where: {
-              bucket_objectKey: {
-                bucket: storedSrt.bucket,
-                objectKey: storedSrt.objectKey,
-              },
-            },
-            update: {
-              projectId: scene.projectId,
-              contentType: "application/x-subrip",
-              byteSize: storedSrt.byteSize,
-              source: "local-text-alignment",
-              license: "project-output",
-            },
-            create: {
-              projectId: scene.projectId,
-              kind: "SUBTITLE_SRT",
-              bucket: storedSrt.bucket,
-              objectKey: storedSrt.objectKey,
-              byteSize: storedSrt.byteSize,
-              contentType: "application/x-subrip",
-              source: "local-text-alignment",
-              license: "project-output",
-            },
-          }),
-          tx.asset.upsert({
-            where: {
-              bucket_objectKey: {
-                bucket: storedAss.bucket,
-                objectKey: storedAss.objectKey,
-              },
-            },
-            update: {
-              projectId: scene.projectId,
-              contentType: "text/x-ssa",
-              byteSize: storedAss.byteSize,
-              source: "local-text-alignment",
-              license: "project-output",
-            },
-            create: {
-              projectId: scene.projectId,
-              kind: "SUBTITLE_ASS",
-              bucket: storedAss.bucket,
-              objectKey: storedAss.objectKey,
-              byteSize: storedAss.byteSize,
-              contentType: "text/x-ssa",
-              source: "local-text-alignment",
-              license: "project-output",
-            },
-          }),
-        ]);
-        await tx.voiceTrack.create({
-          data: {
-            sceneId: scene.id,
-            assetId: audioAsset.id,
-            model: "openbmb/VoxCPM2",
-            voice: "VoxCPM2 高保真克隆",
-            instructions: preparedReference.promptText,
-            durationMs,
-            aiGenerated: true,
           },
-        });
-        await tx.scene.update({
-          where: { id: scene.id },
-          data: { estimatedDuration: Math.max(1.5, durationMs / 1_000) },
-        });
-        await tx.subtitleCue.deleteMany({ where: { sceneId: scene.id } });
-        await tx.subtitleCue.createMany({
-          data: cues.map((cue, order) => ({
-            sceneId: scene.id,
-            order,
-            startMs: cue.startMs,
-            endMs: cue.endMs,
-            text: cue.text,
-            translation: cue.translation ?? null,
-            highlighted: cue.highlighted ?? [],
-          })),
-        });
-        await tx.generationJob.update({
+        },
+      });
+      const audio = await synthesize({
+        serviceUrl,
+        text: narration,
+        referenceAudio,
+      });
+      const durationMs = wavDurationMs(audio);
+      if (!durationMs || durationMs < 100) {
+        throw new Error("INDEXTTS_AUDIO_INVALID");
+      }
+
+      let partition: ContinuousPartition;
+      if (groupScenes.length > 1) {
+        await prisma.generationJob.update({
           where: { id: input.jobId },
           data: {
-            status: "SUCCEEDED",
-            progress: 100,
-            errorCode: null,
-            errorMessage: null,
-            finishedAt: new Date(),
-            output: { audioObjectKey: storedAudio.objectKey },
+            progress: 55,
+            events: {
+              create: {
+                status: "RUNNING",
+                progress: 55,
+                code: "VOICE_ALIGNING",
+              },
+            },
           },
         });
+        partition = await partitionContinuousVoice(
+          audio,
+          groupScenes.map((groupScene) => groupScene.narration.trim()),
+          align,
+        );
+      } else {
+        partition = {
+          mode: "fallback",
+          boundaries: [{ startMs: 0, endMs: durationMs }],
+        };
+      }
+
+      const slices = groupScenes.map((groupScene, index) => {
+        const boundary = partition.boundaries[index]!;
+        const rawClip = slicePcmWav(audio, boundary.startMs, boundary.endMs);
+        const clip = capInternalSilencePcmWav(
+          capWavTrailingSilence(
+            rawClip,
+            maximumSceneTrailingSilenceMs(groupScene.narration),
+          ),
+        );
+        return {
+          scene: groupScene,
+          clip,
+          durationMs:
+            wavDurationMs(clip) ?? boundary.endMs - boundary.startMs,
+          objectKey: voiceAudioObjectKey(
+            input.projectId,
+            groupScene.id,
+            input.jobId,
+          ),
+          boundary,
+        };
       });
-      return { audioObjectKey: storedAudio.objectKey };
+      const coversAllScenes =
+        groupScenes.length === project.scenes.length &&
+        groupScenes.every(
+          (groupScene, index) => groupScene.id === project.scenes[index]?.id,
+        );
+      const masterObjectKey = coversAllScenes
+        ? `projects/${input.projectId}/voice/${input.jobId}-continuous.wav`
+        : undefined;
+      const masterDurationMs = slices.reduce(
+        (sum, slice) => sum + slice.durationMs,
+        0,
+      );
+      const masterAudio = masterObjectKey
+        ? concatenatePcmWav(
+            slices.map((slice) => ({ audio: slice.clip, pauseAfterMs: 0 })),
+          )
+        : undefined;
+
+      await Promise.all(
+        slices.map((slice) =>
+          objectStore.put(slice.objectKey, slice.clip, "audio/wav"),
+        ),
+      );
+      if (masterObjectKey && masterAudio) {
+        await objectStore.put(masterObjectKey, masterAudio, "audio/wav");
+      }
+      await prisma.generationJob.update({
+        where: { id: input.jobId },
+        data: {
+          progress: 80,
+          events: {
+            create: {
+              status: "RUNNING",
+              progress: 80,
+              code: "VOICE_SAVING",
+            },
+          },
+        },
+      });
+
+      await prisma.$transaction(async (tx) => {
+        const current = await tx.scene.findUniqueOrThrow({
+          where: { id: scene.id },
+          select: { project: { select: { revision: true } } },
+        });
+        if (current.project.revision !== input.projectRevision) {
+          throw new Error("PROJECT_REVISION_STALE");
+        }
+        if (masterObjectKey) {
+          await tx.asset.deleteMany({
+            where: { projectId: input.projectId, kind: "NARRATION_MIX" },
+          });
+        }
+        for (const [index, slice] of slices.entries()) {
+          await tx.voiceTrack.deleteMany({
+            where: { sceneId: slice.scene.id },
+          });
+          await tx.subtitleCue.deleteMany({
+            where: { sceneId: slice.scene.id },
+          });
+          const asset = await tx.asset.create({
+            data: {
+              projectId: input.projectId,
+              kind: "VOICE",
+              bucket: "local",
+              objectKey: slice.objectKey,
+              contentType: "audio/wav",
+              byteSize: BigInt(slice.clip.byteLength),
+              source: "indextts2",
+              metadata: {
+                provider: "indextts2",
+                model: "IndexTTS-2",
+                sceneId: slice.scene.id,
+                jobId: input.jobId,
+              },
+            },
+          });
+          await tx.voiceTrack.create({
+            data: {
+              sceneId: slice.scene.id,
+              assetId: asset.id,
+              model: "IndexTTS-2",
+              voice: voiceProfile.name,
+              durationMs: slice.durationMs,
+              aiGenerated: true,
+            },
+          });
+          if (!project.includeSubtitles) continue;
+          let cues: Array<{ startMs: number; endMs: number; text: string }>;
+          if (partition.mode === "whisper" && partition.cueGroups?.[index]) {
+            cues = finalizeSceneSubtitleCues(
+              partition.cueGroups[index],
+              slice.boundary.startMs,
+              slice.durationMs,
+            );
+          } else {
+            const baseCues = voiceSubtitleCues(
+              slice.scene.subtitle,
+              slice.durationMs,
+            );
+            const snappedCues = alignSubtitleCueStartsToPcmWav(
+              slice.clip,
+              baseCues,
+              { firstSearchRadiusMs: 800 },
+            );
+            cues = finalizeSceneSubtitleCues(
+              snappedCues,
+              0,
+              slice.durationMs,
+            );
+          }
+          if (cues.length > 0) {
+            await tx.subtitleCue.createMany({
+              data: cues.map((cue, order) => ({
+                sceneId: slice.scene.id,
+                order,
+                startMs: cue.startMs,
+                endMs: cue.endMs,
+                text: cue.text,
+                highlighted: [],
+              })),
+            });
+          }
+        }
+        if (masterObjectKey) {
+          await tx.asset.create({
+            data: {
+              projectId: input.projectId,
+              kind: "NARRATION_MIX",
+              bucket: "local",
+              objectKey: masterObjectKey,
+              contentType: "audio/wav",
+              byteSize: BigInt(audio.byteLength),
+              source: "indextts2",
+              metadata: continuousNarrationAssetMetadataSchema.parse({
+                assetRole: "CONTINUOUS_NARRATION",
+                projectRevision: input.projectRevision,
+                sceneIds: project.scenes.map((projectScene) => projectScene.id),
+                sceneDurationsMs: slices.map((slice) => slice.durationMs),
+                durationMs: masterDurationMs,
+                voiceGenerationJobId: input.jobId,
+              }),
+            },
+          });
+        }
+      });
+
+      await prisma.generationJob.update({
+        where: { id: input.jobId },
+        data: {
+          status: "SUCCEEDED",
+          progress: 100,
+          finishedAt: new Date(),
+          output: {
+            audioObjectKey: masterObjectKey ?? slices[0]?.objectKey,
+            durationMs: masterObjectKey ? masterDurationMs : durationMs,
+            sceneCount: slices.length,
+          },
+          events: {
+            create: {
+              status: "SUCCEEDED",
+              progress: 100,
+              code: "VOICE_SUCCEEDED",
+            },
+          },
+        },
+      });
+      return { audioObjectKey: masterObjectKey ?? slices[0]!.objectKey };
     } catch (error) {
       await prisma.generationJob.update({
         where: { id: input.jobId },

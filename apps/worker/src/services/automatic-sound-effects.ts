@@ -58,7 +58,7 @@ const expandedSemanticRules: ReadonlyArray<{
   },
   {
     tag: "surprise",
-    pattern: /惊讶|震惊|没想到|意外|居然|竟然|哇|surprise|shock/iu,
+    pattern: /惊讶|震惊|没想到|意外|居然|竟然|surprise|shock/iu,
   },
   {
     tag: "question",

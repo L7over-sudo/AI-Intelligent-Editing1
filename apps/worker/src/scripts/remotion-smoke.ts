@@ -79,6 +79,7 @@ try {
         soundEffects: [],
       },
     ],
+    narrationVolume: 1,
     backgroundMusicVolume: 0.18,
     videoTemplate: "KNOWLEDGE_BOARD",
     headerText: "— 思维提升 | 表达沟通 | 职场成长 —",

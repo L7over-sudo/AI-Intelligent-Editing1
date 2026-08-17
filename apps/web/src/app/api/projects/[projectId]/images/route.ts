@@ -26,7 +26,7 @@ export async function POST(
       include: {
         scenes: {
           where: { id: { in: input.sceneIds } },
-          select: { id: true, isTextOpening: true },
+          select: { id: true },
         },
       },
     });
@@ -36,17 +36,12 @@ export async function POST(
     }
 
     const uniqueSceneIds = [
-      ...new Set(
-        project.scenes
-          .filter((scene) => !scene.isTextOpening)
-          .map((scene) => scene.id),
-      ),
+      ...new Set(project.scenes.map((scene) => scene.id)),
     ];
     if (uniqueSceneIds.length === 0) {
       throw new Error("NO_VISUAL_SCENES");
     }
-    if (project.scenes.filter((scene) => !scene.isTextOpening).length !==
-      uniqueSceneIds.length) {
+    if (project.scenes.length !== uniqueSceneIds.length) {
       throw new Error("SCENE_NOT_FOUND");
     }
 

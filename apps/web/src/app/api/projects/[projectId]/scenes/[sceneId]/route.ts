@@ -61,9 +61,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (input.soundEffects !== undefined) {
       data.soundEffects = input.soundEffects;
     }
-    if (input.isTextOpening !== undefined) {
-      data.isTextOpening = input.isTextOpening;
-    }
 
     const prisma = getPrisma();
     const [scene] = await prisma.$transaction([

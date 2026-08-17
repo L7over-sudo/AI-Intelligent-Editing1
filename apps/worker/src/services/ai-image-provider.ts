@@ -1,8 +1,11 @@
 import { z } from "zod";
 
+import type { ImageSizePreset } from "@stickmotion/shared";
+
 export const imageApiModelSchema = z.enum([
   "gpt-image-2",
   "gpt-image-2pro",
+  "gpt-image-2-template",
   "nano-banana-2",
   "nano-banana-pro",
 ]);
@@ -13,8 +16,9 @@ export type ImageApiSize = z.infer<typeof imageApiSizeSchema>;
 
 export interface GenerateSceneImageInput {
   prompt: string;
-  aspectRatio: "PORTRAIT" | "LANDSCAPE";
+  aspectRatio: "PORTRAIT" | "LANDSCAPE" | "WIDE";
   accentColor: string;
+  imageSize?: ImageSizePreset;
   referenceImageUrls?: string[];
 }
 
@@ -24,8 +28,17 @@ export interface ImageRequest {
   maxReferenceImages: number;
 }
 
+interface ExtractedImagePayload {
+  base64?: string;
+  url?: string;
+  httpFallbackUrl?: string;
+}
+
 export const imageTextExclusionInstruction =
   "Use the storyboard content only to understand the scene. Do not copy the storyboard text verbatim into the image. Do not add logos or watermarks.";
+
+export const ultrawideCompositionInstruction =
+  "Use a balanced 21:9 ultrawide composition. Spread the visual story naturally across the full horizontal frame while keeping every key subject fully visible.";
 
 const referenceImageSchema = z
   .string()
@@ -51,7 +64,11 @@ interface ProviderOptions {
 
 const gptSizes = {
   "gpt-image-2": {
-    "1K": { PORTRAIT: "720x1280", LANDSCAPE: "1280x720" },
+    "1K": {
+      PORTRAIT: "720x1280",
+      LANDSCAPE: "1280x720",
+      WIDE: "1344x576",
+    },
   },
   "gpt-image-2pro": {
     "2K": { PORTRAIT: "1152x2048", LANDSCAPE: "2048x1152" },
@@ -59,10 +76,34 @@ const gptSizes = {
   },
 } as const;
 
+const presetRatioToExactSize: Partial<Record<ImageSizePreset, string>> = {
+  "9:16": "720x1280",
+  "16:9": "1280x720",
+  "3:2": "1008x672",
+  "21:9": "1344x576",
+};
+
+const exactSizeToAspectRatio: Record<string, string> = {
+  "1024x1024": "1:1",
+  "1040x832": "5:4",
+  "720x1280": "9:16",
+  "1280x720": "16:9",
+  "1024x768": "4:3",
+  "1008x672": "3:2",
+  "832x1040": "4:5",
+  "768x1024": "3:4",
+  "672x1008": "2:3",
+  "1344x576": "21:9",
+};
+
+const imageRedirectStatuses = new Set([301, 302, 303, 307, 308]);
+const maxImageRedirects = 3;
+
 export function normalizeImageSize(
   model: ImageApiModel,
   requested: ImageApiSize,
 ): ImageApiSize {
+  if (model === "gpt-image-2-template") return requested;
   if (model === "gpt-image-2") return "1K";
   if (model === "gpt-image-2pro" && requested === "1K") return "2K";
   return requested;
@@ -78,28 +119,55 @@ export function buildImageRequest(
   const references = z
     .array(referenceImageSchema)
     .parse(input.referenceImageUrls ?? []);
-  const portrait = input.aspectRatio === "PORTRAIT";
   const size = normalizeImageSize(model, imageSize);
+  const selectedPreset =
+    input.imageSize && input.imageSize !== "AUTO" ? input.imageSize : undefined;
+  const selectedDimension = selectedPreset?.includes("x")
+    ? selectedPreset
+    : undefined;
+  const selectedRatio =
+    selectedPreset && !selectedPreset.includes("x")
+      ? selectedPreset
+      : undefined;
 
   if (model.startsWith("gpt-image-")) {
-    const maxReferenceImages = model === "gpt-image-2pro" ? 4 : 6;
+    const gptRequestModel: "gpt-image-2" | "gpt-image-2pro" =
+      model === "gpt-image-2-template"
+        ? size === "1K"
+          ? "gpt-image-2"
+          : "gpt-image-2pro"
+        : model === "gpt-image-2"
+          ? "gpt-image-2"
+          : "gpt-image-2pro";
+    const maxReferenceImages = gptRequestModel === "gpt-image-2pro" ? 4 : 6;
     if (references.length > maxReferenceImages) {
       throw new Error("IMAGE_REFERENCE_LIMIT_EXCEEDED");
     }
     const sizes =
-      model === "gpt-image-2"
+      gptRequestModel === "gpt-image-2"
         ? gptSizes["gpt-image-2"]["1K"]
         : gptSizes["gpt-image-2pro"][size as "2K" | "4K"];
+    const requestedSize =
+      selectedDimension ??
+      (selectedRatio ? presetRatioToExactSize[selectedRatio] : undefined) ??
+      (input.aspectRatio === "PORTRAIT"
+        ? sizes.PORTRAIT
+        : input.aspectRatio === "WIDE" && "WIDE" in sizes
+          ? sizes.WIDE
+          : sizes.LANDSCAPE);
     return {
       url: `${normalizedBaseUrl}/v1/images/generations`,
       maxReferenceImages,
       body: {
-        model,
+        model: gptRequestModel,
         prompt: input.prompt,
-        size: portrait ? sizes.PORTRAIT : sizes.LANDSCAPE,
+        size: requestedSize,
         ...(references.length > 0 ? { reference_images: references } : {}),
         n: 1,
-        response_format: "b64_json",
+        // This relay documents b64_json as an image URL. Use b64_data so the
+        // Worker receives the image directly and does not depend on a second
+        // CDN download request.
+        response_format: "b64_data",
       },
     };
   }
@@ -108,6 +176,16 @@ export function buildImageRequest(
   if (references.length > maxReferenceImages) {
     throw new Error("IMAGE_REFERENCE_LIMIT_EXCEEDED");
   }
+  const nanoAspectRatio =
+    selectedRatio ??
+    (selectedDimension
+      ? exactSizeToAspectRatio[selectedDimension]
+      : undefined) ??
+    (input.aspectRatio === "PORTRAIT"
+      ? "9:16"
+      : input.aspectRatio === "WIDE"
+        ? "21:9"
+        : "16:9");
   return {
     url: `${normalizedBaseUrl}/v1beta/models/${model}:generateContent`,
     maxReferenceImages,
@@ -132,7 +210,7 @@ export function buildImageRequest(
       generationConfig: {
         imageConfig: {
           imageSize: size,
-          aspectRatio: portrait ? "9:16" : "16:9",
+          aspectRatio: nanoAspectRatio,
         },
       },
     },
@@ -192,6 +270,21 @@ export function normalizeImageDownloadUrl(
 ): string | undefined {
   if (!value || !/^https?:\/\//u.test(value)) return undefined;
   const url = new URL(value);
+  assertPublicImageHost(url);
+  url.protocol = "https:";
+  return url.href;
+}
+
+function normalizeHttpImageFallbackUrl(
+  value: string | undefined,
+): string | undefined {
+  if (!value || !/^http:\/\//u.test(value)) return undefined;
+  const url = new URL(value);
+  assertPublicImageHost(url);
+  return url.href;
+}
+
+function assertPublicImageHost(url: URL): void {
   const hostname = url.hostname.toLowerCase();
   const privateIpv4 =
     /^127\./u.test(hostname) ||
@@ -208,22 +301,31 @@ export function normalizeImageDownloadUrl(
   ) {
     throw new Error("IMAGE_DOWNLOAD_URL_FORBIDDEN");
   }
-  url.protocol = "https:";
-  return url.href;
 }
+
 function extractImagePayload(
   model: ImageApiModel,
   unsafeResponse: unknown,
-): { base64?: string; url?: string } {
+): ExtractedImagePayload {
+  const extractUrl = (value: string | undefined) => {
+    const url = normalizeImageDownloadUrl(value);
+    if (!url) return undefined;
+    const httpFallbackUrl = normalizeHttpImageFallbackUrl(value);
+    return {
+      url,
+      ...(httpFallbackUrl ? { httpFallbackUrl } : {}),
+    };
+  };
+
   if (model.startsWith("gpt-image-")) {
     const item = gptResponseSchema.parse(unsafeResponse).data[0];
     if (!item) throw new Error("IMAGE_DATA_MISSING");
     const value = item.b64_data ?? item.b64_json;
-    const valueUrl = normalizeImageDownloadUrl(value);
-    if (valueUrl) return { url: valueUrl };
+    const valueUrl = extractUrl(value);
+    if (valueUrl) return valueUrl;
     if (value) return { base64: value };
-    const itemUrl = normalizeImageDownloadUrl(item.url);
-    if (itemUrl) return { url: itemUrl };
+    const itemUrl = extractUrl(item.url);
+    if (itemUrl) return itemUrl;
     throw new Error("IMAGE_DATA_MISSING");
   }
 
@@ -236,8 +338,8 @@ function extractImagePayload(
   const url =
     parts?.find((part) => part.fileData)?.fileData?.fileUri ??
     response.fileData?.fileUri;
-  const normalizedUrl = normalizeImageDownloadUrl(url);
-  if (normalizedUrl) return { url: normalizedUrl };
+  const normalizedUrl = extractUrl(url);
+  if (normalizedUrl) return normalizedUrl;
   throw new Error("IMAGE_DATA_MISSING");
 }
 
@@ -255,10 +357,7 @@ export class OpenAIImageProvider {
 
   constructor(options?: ProviderOptions) {
     this.#apiKey =
-      options?.apiKey ??
-      process.env.IMAGE_API_KEY ??
-      process.env.OPENAI_API_KEY ??
-      "";
+      options?.apiKey ?? process.env.IMAGE_API_KEY ?? "";
     this.#baseUrl =
       options?.baseUrl ??
       process.env.IMAGE_API_BASE_URL ??
@@ -287,7 +386,15 @@ export class OpenAIImageProvider {
 
   async generate(input: GenerateSceneImageInput): Promise<Uint8Array> {
     if (!this.#apiKey) throw new Error("IMAGE_API_KEY_REQUIRED");
-    const prompt = [input.prompt, imageTextExclusionInstruction].join(" ");
+    const wantsUltrawide =
+      input.aspectRatio === "WIDE" ||
+      input.imageSize === "21:9" ||
+      input.imageSize === "1344x576";
+    const prompt = [
+      input.prompt,
+      ...(wantsUltrawide ? [ultrawideCompositionInstruction] : []),
+      imageTextExclusionInstruction,
+    ].join(" ");
     const request = buildImageRequest(
       this.#baseUrl,
       this.model,
@@ -303,23 +410,82 @@ export class OpenAIImageProvider {
       return Uint8Array.from(Buffer.from(payload.base64, "base64"));
     }
     if (!payload.url) throw new Error("IMAGE_DATA_MISSING");
-    const imageResponse = await this.#fetch(payload.url, {
-      redirect: "error",
-    });
-    if (!imageResponse.ok) {
-      throw new Error(`IMAGE_DOWNLOAD_FAILED_${imageResponse.status}`);
+    return this.#downloadImage(payload.url, payload.httpFallbackUrl);
+  }
+
+  async #downloadImage(
+    url: string,
+    httpFallbackUrl?: string,
+  ): Promise<Uint8Array> {
+    try {
+      return await this.#downloadImageUrl(url);
+    } catch (error) {
+      if (!httpFallbackUrl || !isImageDownloadNetworkFailure(error)) {
+        throw error;
+      }
+      return this.#downloadImageUrl(httpFallbackUrl);
     }
-    const contentLength = Number(
-      imageResponse.headers.get("content-length") ?? "0",
-    );
-    if (contentLength > 12 * 1024 * 1024) {
-      throw new Error("IMAGE_DOWNLOAD_TOO_LARGE");
+  }
+
+  async #downloadImageUrl(url: string): Promise<Uint8Array> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const imageResponse = await this.#fetchImageResponse(url);
+        if (!imageResponse.ok) {
+          if (
+            isRetryableImageStatus(imageResponse.status) &&
+            attempt < this.#retryDelaysMs.length
+          ) {
+            await this.#waitBeforeRetry(this.#retryDelaysMs[attempt] ?? 0);
+            continue;
+          }
+          throw new Error(`IMAGE_DOWNLOAD_FAILED_${imageResponse.status}`);
+        }
+        const contentLength = Number(
+          imageResponse.headers.get("content-length") ?? "0",
+        );
+        if (contentLength > 12 * 1024 * 1024) {
+          throw new Error("IMAGE_DOWNLOAD_TOO_LARGE");
+        }
+        const image = new Uint8Array(await imageResponse.arrayBuffer());
+        if (image.byteLength > 12 * 1024 * 1024) {
+          throw new Error("IMAGE_DOWNLOAD_TOO_LARGE");
+        }
+        return image;
+      } catch (error) {
+        if (isStableImageDownloadError(error)) throw error;
+        if (attempt < this.#retryDelaysMs.length) {
+          await this.#waitBeforeRetry(this.#retryDelaysMs[attempt] ?? 0);
+          continue;
+        }
+        throw new Error("IMAGE_DOWNLOAD_NETWORK_FAILED", { cause: error });
+      }
     }
-    const image = new Uint8Array(await imageResponse.arrayBuffer());
-    if (image.byteLength > 12 * 1024 * 1024) {
-      throw new Error("IMAGE_DOWNLOAD_TOO_LARGE");
+  }
+
+  async #fetchImageResponse(url: string): Promise<Response> {
+    let currentUrl = url;
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      const response = await this.#fetch(currentUrl, {
+        redirect: "manual",
+      });
+      if (!imageRedirectStatuses.has(response.status)) return response;
+      if (redirectCount >= maxImageRedirects) {
+        throw new Error("IMAGE_DOWNLOAD_REDIRECT_LIMIT");
+      }
+      const location = response.headers.get("location");
+      if (!location) throw new Error("IMAGE_DOWNLOAD_REDIRECT_INVALID");
+      try {
+        currentUrl = normalizeImageDownloadUrl(
+          new URL(location, currentUrl).href,
+        ) as string;
+      } catch (error) {
+        if (error instanceof Error && error.message === "IMAGE_DOWNLOAD_URL_FORBIDDEN") {
+          throw error;
+        }
+        throw new Error("IMAGE_DOWNLOAD_REDIRECT_INVALID", { cause: error });
+      }
     }
-    return image;
   }
   async #requestGeneration(request: ImageRequest): Promise<Response> {
     for (let attempt = 0; ; attempt += 1) {
@@ -388,6 +554,23 @@ export class OpenAIImageProvider {
 
 function isRetryableImageStatus(status: number): boolean {
   return [403, 408, 425, 429, 500, 502, 503, 504].includes(status);
+}
+
+function isStableImageDownloadError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.startsWith("IMAGE_DOWNLOAD_FAILED_") ||
+      error.message.startsWith("IMAGE_DOWNLOAD_REDIRECT_") ||
+      error.message === "IMAGE_DOWNLOAD_TOO_LARGE" ||
+      error.message === "IMAGE_DOWNLOAD_URL_FORBIDDEN")
+  );
+}
+
+function isImageDownloadNetworkFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === "IMAGE_DOWNLOAD_NETWORK_FAILED"
+  );
 }
 
 async function safeImageApiError(response: Response): Promise<string> {

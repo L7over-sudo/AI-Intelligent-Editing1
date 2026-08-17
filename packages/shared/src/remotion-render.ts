@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  backgroundMusicVolumeSchema,
+  narrationVolumeSchema,
+} from "./audio-mix";
 import { animationSchema, transitionSchema } from "./storyboard";
 import { videoTemplateSchema } from "./video-template";
 
@@ -14,6 +18,11 @@ export const remotionSubtitleCueSchema = z
     startMs: z.number().int().min(0),
     endMs: z.number().int().positive(),
     text: z.string().trim().min(1).max(160),
+    translation: z.string().trim().min(1).max(240).optional(),
+    highlighted: z
+      .array(z.string().trim().min(1).max(80))
+      .max(24)
+      .optional(),
   })
   .strict()
   .refine((cue) => cue.endMs > cue.startMs, {
@@ -38,8 +47,6 @@ export const remotionSceneSchema = z
       .max(15 * 60 * 1_000),
     animation: animationSchema,
     transition: transitionSchema,
-    isTextOpening: z.boolean().optional(),
-    openingText: z.string().trim().max(1_200).optional(),
     voiceFile: remotionMediaFileSchema.optional(),
     subtitleCues: z.array(remotionSubtitleCueSchema).max(200),
     soundEffects: z.array(remotionSoundEffectSchema).max(50),
@@ -52,13 +59,13 @@ export const remotionRenderInputSchema = z
     height: z.number().int().min(320).max(4096),
     fps: z.number().int().min(24).max(60).default(30),
     scenes: z.array(remotionSceneSchema).min(1).max(500),
+    narrationFile: remotionMediaFileSchema.optional(),
     backgroundMusicFile: remotionMediaFileSchema.optional(),
-    backgroundMusicVolume: z.number().min(0).max(1).default(0.18),
+    narrationVolume: narrationVolumeSchema,
+    backgroundMusicVolume: backgroundMusicVolumeSchema,
     videoTemplate: videoTemplateSchema.default("FULL_BLEED"),
     headerText: z.string().trim().max(120).default(""),
-    cornerVariant: z
-      .enum(["BRACKET", "DIAMOND", "DOTS", "LINES"])
-      .optional(),
+    cornerVariant: z.enum(["BRACKET", "DIAMOND", "DOTS", "LINES"]).optional(),
     subtitleStyle: z
       .object({
         fontSize: z.number().int().min(28).max(96),

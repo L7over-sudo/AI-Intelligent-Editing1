@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   automaticVoiceIdempotencyKey,
+  groupScenesForContinuousVoice,
   shouldQueueAutomaticVoice,
 } from "./automatic-voice";
 
@@ -10,8 +11,16 @@ describe("automatic voice generation", () => {
     expect(
       shouldQueueAutomaticVoice({
         includeNarration: true,
-        voiceStyle: "voxcpm2",
+        voiceStyle: "local-clone",
         voiceProfileId: "profile-1",
+        hasVoiceTrack: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldQueueAutomaticVoice({
+        includeNarration: true,
+        voiceStyle: "indextts2",
+        voiceProfileId: "profile-2",
         hasVoiceTrack: false,
       }),
     ).toBe(true);
@@ -29,7 +38,7 @@ describe("automatic voice generation", () => {
     expect(
       shouldQueueAutomaticVoice({
         includeNarration: true,
-        voiceStyle: "voxcpm2",
+        voiceStyle: "local-clone",
         voiceProfileId: null,
         hasVoiceTrack: false,
       }),
@@ -37,7 +46,7 @@ describe("automatic voice generation", () => {
     expect(
       shouldQueueAutomaticVoice({
         includeNarration: true,
-        voiceStyle: "voxcpm2",
+        voiceStyle: "local-clone",
         voiceProfileId: "profile-1",
         hasVoiceTrack: true,
       }),
@@ -45,7 +54,7 @@ describe("automatic voice generation", () => {
     expect(
       shouldQueueAutomaticVoice({
         includeNarration: false,
-        voiceStyle: "voxcpm2",
+        voiceStyle: "local-clone",
         voiceProfileId: "profile-1",
         hasVoiceTrack: false,
       }),
@@ -57,4 +66,16 @@ describe("automatic voice generation", () => {
       "auto-voice:scene-1:3:image-job-1",
     );
   });
+
+  it("keeps comma-delimited visual scenes in one continuous speech group", () => {
+    expect(
+      groupScenesForContinuousVoice([
+        { id: "scene-1", narration: "真正值得讨论的，" },
+        { id: "scene-2", narration: "不是早到几分钟，" },
+        { id: "scene-3", narration: "而是如何理解职责。" },
+        { id: "scene-4", narration: "下一句话。" },
+      ]).map((group) => group.map((scene) => scene.id)),
+    ).toEqual([["scene-1", "scene-2", "scene-3"], ["scene-4"]]);
+  });
+
 });

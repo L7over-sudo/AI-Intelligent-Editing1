@@ -49,7 +49,7 @@ describe("image provider HTTP URL compatibility", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://images.example.com/generated/scene.png?token=ok",
     );
-    expect(fetchMock.mock.calls[1]?.[1]).toEqual({ redirect: "error" });
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual({ redirect: "manual" });
   });
 
   it("rejects local and private image download URLs", () => {
@@ -59,5 +59,42 @@ describe("image provider HTTP URL compatibility", () => {
     expect(() =>
       normalizeImageDownloadUrl("http://192.168.1.2/private.png"),
     ).toThrow("IMAGE_DOWNLOAD_URL_FORBIDDEN");
+  });
+
+  it("falls back to a public HTTP image URL when HTTPS is unavailable", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ url: "http://198.200.33.80/i/generated.png" }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
+      );
+    const provider = new OpenAIImageProvider({
+      apiKey: "sk-test-image-key",
+      model: "gpt-image-2",
+      fetchImplementation: fetchMock,
+      retryDelaysMs: [],
+    });
+
+    await expect(
+      provider.generate({
+        prompt: "scene",
+        aspectRatio: "LANDSCAPE",
+        accentColor: "#19B9C6",
+      }),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://198.200.33.80/i/generated.png",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://198.200.33.80/i/generated.png",
+    );
   });
 });

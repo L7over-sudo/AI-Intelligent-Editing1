@@ -28,19 +28,21 @@ export async function GET(
       orderBy: { createdAt: "desc" },
       take: 20,
     });
-    const reference = assets.find((asset) =>
-      voiceCloneReferenceMetadataSchema.safeParse(asset.metadata).success,
+    const reference = assets.find(
+      (asset) =>
+        voiceCloneReferenceMetadataSchema.safeParse(asset.metadata).success,
     );
     if (!reference) {
       return NextResponse.json({ reference: null });
     }
-    const metadata = voiceCloneReferenceMetadataSchema.parse(reference.metadata);
+    const metadata = voiceCloneReferenceMetadataSchema.parse(
+      reference.metadata,
+    );
     return NextResponse.json({
       reference: {
         assetId: reference.id,
         fileName: metadata.originalFileName,
-        promptText: metadata.promptText,
-        promptLanguage: metadata.promptLanguage,
+        provider: metadata.provider,
         serviceUrl: metadata.serviceUrl,
       },
     });
@@ -64,15 +66,15 @@ export async function POST(
     if (!project) throw new Error("PROJECT_NOT_FOUND");
 
     const extension = input.fileName.toLowerCase().split(".").pop() ?? "wav";
-    const safeExtension = /^[a-z0-9]{2,5}$/u.test(extension) ? extension : "wav";
+    const safeExtension = /^[a-z0-9]{2,5}$/u.test(extension)
+      ? extension
+      : "wav";
     const objectKey =
-      `users/${user.id}/voice-profiles/` +
-      `${randomUUID()}.${safeExtension}`;
+      `users/${user.id}/voice-profiles/` + `${randomUUID()}.${safeExtension}`;
     const metadata = voiceCloneReferenceMetadataSchema.parse({
+      provider: "indextts2",
       purpose: "voice-clone-reference",
       originalFileName: input.fileName,
-      promptText: input.promptText,
-      promptLanguage: input.promptLanguage,
       serviceUrl: input.serviceUrl,
       consentConfirmedAt: new Date().toISOString(),
     });
@@ -101,7 +103,7 @@ export async function POST(
       await tx.project.update({
         where: { id: projectId },
         data: {
-          voiceStyle: "voxcpm2",
+          voiceStyle: "indextts2",
           voiceProfileId: profile.id,
         },
       });
@@ -113,6 +115,7 @@ export async function POST(
       profile: {
         id: saved.profile.id,
         name: saved.profile.name,
+        provider: input.provider,
       },
       uploadUrl: `/api/assets/${saved.asset.id}/content`,
       method: "PUT",
@@ -121,4 +124,3 @@ export async function POST(
     return apiError(error);
   }
 }
-

@@ -5,6 +5,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
+  devIndicators: false,
   redirects() {
     return Promise.resolve([
       { source: "/", destination: "/projects/new", permanent: false },

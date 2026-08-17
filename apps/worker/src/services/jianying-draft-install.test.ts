@@ -81,4 +81,61 @@ describe("installJianyingDraft", () => {
     );
     expect(result.stagingRemoved).toBe(true);
   });
+
+  it("installs timeline drafts that reference scene photos instead of remix.mp4", async () => {
+    const temporary = await mkdtemp(path.join(tmpdir(), "jianying-install-"));
+    temporaryRoots.push(temporary);
+    const stagingRoot = path.join(temporary, "staging");
+    const stagingPath = path.join(stagingRoot, "timeline-draft");
+    const installedRoot = path.join(temporary, "installed");
+    const materials = path.join(stagingPath, "materials");
+    const draftId = randomUUID();
+    await mkdir(materials, { recursive: true });
+    await writeFile(path.join(materials, "scene-001.png"), "photo", "utf8");
+    await writeFile(path.join(materials, "voice-001.wav"), "voice", "utf8");
+    await writeFile(
+      path.join(stagingPath, "draft_content.json"),
+      JSON.stringify({
+        id: draftId,
+        materials: {
+          videos: [
+            {
+              path: path.join(materials, "scene-001.png").replaceAll("\\", "/"),
+            },
+          ],
+          audios: [],
+          transitions: [],
+        },
+      }),
+      "utf8",
+    );
+    const meta = {
+      draft_id: draftId,
+      draft_fold_path: stagingPath.replaceAll("\\", "/"),
+    };
+    await writeFile(
+      path.join(stagingPath, "draft_meta_info.json"),
+      JSON.stringify(meta),
+      "utf8",
+    );
+    await writeFile(
+      path.join(stagingPath, "root_meta_info.json"),
+      JSON.stringify({ all_draft_store: [meta] }),
+      "utf8",
+    );
+
+    const result = await installJianyingDraft({
+      stagingRoot,
+      stagingPath,
+      configuredRoot: installedRoot,
+    });
+
+    await expect(
+      readFile(path.join(result.installedPath, "materials", "scene-001.png"), "utf8"),
+    ).resolves.toBe("photo");
+    await expect(
+      readFile(path.join(result.installedPath, "materials", "voice-001.wav"), "utf8"),
+    ).resolves.toBe("voice");
+    expect(result.stagingRemoved).toBe(true);
+  });
 });

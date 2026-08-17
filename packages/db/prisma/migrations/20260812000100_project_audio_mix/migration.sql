@@ -1,0 +1,2 @@
+ALTER TABLE "Project" ADD COLUMN "narrationVolume" REAL NOT NULL DEFAULT 1.0;
+ALTER TABLE "Project" ADD COLUMN "backgroundMusicVolume" REAL NOT NULL DEFAULT 0.1;

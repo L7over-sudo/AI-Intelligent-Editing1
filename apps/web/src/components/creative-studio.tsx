@@ -1,17 +1,38 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
 
+import {
+  shortProjectTitle,
+  type ImageSizePreset,
+} from "@stickmotion/shared";
+
+import { ConfirmDialog } from "./confirm-dialog";
+import { AppDialog } from "./app-dialog";
+import { withBusyState } from "./async-ui-state";
+import {
+  creativePreferencesStorageKey,
+  parseStoredCreativePreferences,
+  serializeCreativePreferences,
+} from "./creative-preferences";
+import {
+  coverTemplateStorageKey,
+  findSelectedCoverTemplate,
+  noCoverTemplateId,
+  parseSavedCoverTemplates,
+  type SavedCoverTemplate,
+} from "./cover-template";
 import { GenerationAnalysisOverlay } from "./generation-analysis-overlay";
 import {
   VoiceProfilePanel,
-  type VoiceCloneLanguage,
   type VoiceProfileSummary,
 } from "./voice-profile-panel";
 
 type StudioTab =
   | "visual"
   | "template"
+  | "cover"
   | "transition"
   | "character"
   | "voice"
@@ -19,6 +40,12 @@ type StudioTab =
 type AspectRatio = "PORTRAIT" | "LANDSCAPE";
 type OutputMode = "NARRATED" | "VISUAL_ONLY";
 type VideoTemplate = "FULL_BLEED" | "KNOWLEDGE_BOARD";
+
+const projectResponseSchema = z.object({
+  project: z.object({ id: z.string().min(1) }).optional(),
+  error: z.string().optional(),
+  issues: z.array(z.object({ message: z.string() })).optional(),
+});
 
 interface CharacterProfileSummary {
   id: string;
@@ -34,6 +61,7 @@ const sampleCopy =
 const tabs: Array<{ id: StudioTab; label: string }> = [
   { id: "visual", label: "画面" },
   { id: "template", label: "模板" },
+  { id: "cover", label: "封面" },
   { id: "transition", label: "转场" },
   { id: "character", label: "角色" },
   { id: "voice", label: "配音" },
@@ -49,27 +77,26 @@ export function CreativeStudio({
 }) {
   const [activeTab, setActiveTab] = useState<StudioTab>("visual");
   const [sourceText, setSourceText] = useState("");
+  const [projectName, setProjectName] = useState("");
   const [sourceKind, setSourceKind] = useState<"FULL_TEXT" | "TOPIC">(
     "FULL_TEXT",
   );
   const [imagePrompt, setImagePrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("LANDSCAPE");
+  const [imageSize, setImageSize] = useState<ImageSizePreset>("21:9");
   const [videoTemplate, setVideoTemplate] =
     useState<VideoTemplate>("KNOWLEDGE_BOARD");
   const [templateHeader, setTemplateHeader] = useState(
-    "思维提升 | 表达沟通 | 职场成长 | 自我突破",
+    "\u601d\u7ef4\u63d0\u5347|\u8868\u8fbe\u6c9f\u901a|\u804c\u573a\u6210\u957f|\u81ea\u6211\u7a81\u7834",
   );
   const [outputMode, setOutputMode] = useState<OutputMode>("NARRATED");
-  const [voiceStyle, setVoiceStyle] = useState("voxcpm2");
+  const [voiceStyle, setVoiceStyle] = useState("none");
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummary[]>([]);
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("");
   const [voiceProfileName, setVoiceProfileName] = useState("我的声音");
   const [voiceReferenceFile, setVoiceReferenceFile] = useState<File>();
-  const [voicePromptText, setVoicePromptText] = useState("");
-  const [voicePromptLanguage, setVoicePromptLanguage] =
-    useState<VoiceCloneLanguage>("zh");
   const [voiceServiceUrl, setVoiceServiceUrl] = useState(
-    "http://127.0.0.1:9880",
+    "http://127.0.0.1:7851",
   );
   const [voiceConsentConfirmed, setVoiceConsentConfirmed] = useState(false);
   const [characterProfiles, setCharacterProfiles] = useState<
@@ -81,19 +108,132 @@ export function CreativeStudio({
     useState("我的参考人物");
   const [characterReferenceFile, setCharacterReferenceFile] = useState<File>();
   const [transitionsEnabled, setTransitionsEnabled] = useState(true);
-  const [useTextOpeningTemplate, setUseTextOpeningTemplate] = useState(false);
-  const [leftVerticalText, setLeftVerticalText] = useState("@杰研社进化论");
-  const [rightVerticalText, setRightVerticalText] = useState(
-    "个人观点\n\n无不良引导",
-  );
+  const [leftVerticalText, setLeftVerticalText] = useState("无限进化的Jay");
+  const [rightVerticalText, setRightVerticalText] =
+    useState("个人观点\n\n无不良引导");
   const [mainTitle, setMainTitle] = useState("");
   const [music, setMusic] = useState("NONE");
+  const narrationVolume = 1;
+  const backgroundMusicVolume = 0.1;
   const [keepOriginal, setKeepOriginal] = useState(true);
   const [imageApiReady, setImageApiReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
+  const [creativePreferencesLoaded, setCreativePreferencesLoaded] =
+    useState(false);
+  const [coverTemplates, setCoverTemplates] = useState<SavedCoverTemplate[]>(
+    [],
+  );
+  const [selectedCoverTemplateId, setSelectedCoverTemplateId] = useState("");
 
+  useEffect(() => {
+    const savedTemplates = parseSavedCoverTemplates(
+      window.localStorage.getItem(coverTemplateStorageKey),
+    );
+    setCoverTemplates(savedTemplates);
+    setSelectedCoverTemplateId(
+      savedTemplates[savedTemplates.length - 1]?.id ?? "",
+    );
+  }, []);
+
+  useEffect(() => {
+    let stored:
+      | ReturnType<typeof parseStoredCreativePreferences>
+      | undefined;
+    try {
+      stored = parseStoredCreativePreferences(
+        window.localStorage.getItem(creativePreferencesStorageKey),
+      );
+    } catch {
+      stored = undefined;
+    }
+    if (stored?.videoTemplate) setVideoTemplate(stored.videoTemplate);
+    if (stored?.imageSize) setImageSize(stored.imageSize);
+    if (stored?.aspectRatio) setAspectRatio(stored.aspectRatio);
+    if (stored?.templateHeader !== undefined) {
+      setTemplateHeader(stored.templateHeader);
+    }
+    if (stored?.mainTitle !== undefined) setMainTitle(stored.mainTitle);
+    if (stored?.leftVerticalText !== undefined) {
+      setLeftVerticalText(stored.leftVerticalText);
+    }
+    if (stored?.rightVerticalText !== undefined) {
+      setRightVerticalText(stored.rightVerticalText);
+    }
+    if (stored?.transitionsEnabled !== undefined) {
+      setTransitionsEnabled(stored.transitionsEnabled);
+    }
+    if (stored?.outputMode) setOutputMode(stored.outputMode);
+    if (stored?.music) setMusic(stored.music);
+    if (stored?.selectedCoverTemplateId !== undefined) {
+      setSelectedCoverTemplateId(stored.selectedCoverTemplateId);
+    }
+    setCreativePreferencesLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!creativePreferencesLoaded) return;
+    try {
+      window.localStorage.setItem(
+        creativePreferencesStorageKey,
+        serializeCreativePreferences({
+          videoTemplate,
+          imageSize,
+          aspectRatio,
+          templateHeader,
+          mainTitle,
+          leftVerticalText,
+          rightVerticalText,
+          transitionsEnabled,
+          outputMode,
+          music,
+          selectedCoverTemplateId,
+        }),
+      );
+    } catch {
+      // Keep the current form usable when browser storage is unavailable.
+    }
+  }, [
+    aspectRatio,
+    creativePreferencesLoaded,
+    imageSize,
+    leftVerticalText,
+    mainTitle,
+    music,
+    outputMode,
+    rightVerticalText,
+    selectedCoverTemplateId,
+    templateHeader,
+    transitionsEnabled,
+    videoTemplate,
+  ]);
+
+  const selectedCoverTemplate = findSelectedCoverTemplate(
+    coverTemplates,
+    selectedCoverTemplateId,
+  );
+
+  function selectVideoTemplate(value: VideoTemplate) {
+    setVideoTemplate(value);
+    if (value === "KNOWLEDGE_BOARD") {
+      setAspectRatio("LANDSCAPE");
+      setImageSize("21:9");
+    }
+  }
+
+  useEffect(() => {
+    fetch("/api/character-profiles")
+      .then((response) => response.json())
+      .then((data: { profiles?: CharacterProfileSummary[] }) => {
+        const profiles = data.profiles ?? [];
+        setCharacterProfiles(profiles);
+        setSelectedCharacterProfileId(
+          (current) => current || profiles[0]?.id || "",
+        );
+      })
+      .catch(() => setCharacterProfiles([]));
+  }, []);
   useEffect(() => {
     fetch("/api/voice-profiles")
       .then((response) => response.json())
@@ -110,51 +250,29 @@ export function CreativeStudio({
       .catch(() => setVoiceProfiles([]));
   }, []);
   useEffect(() => {
-    fetch("/api/character-profiles")
-      .then((response) => response.json())
-      .then((data: { profiles?: CharacterProfileSummary[] }) => {
-        const profiles = data.profiles ?? [];
-        setCharacterProfiles(profiles);
-        setSelectedCharacterProfileId(
-          (current) => current || profiles[0]?.id || "",
-        );
-      })
-      .catch(() => setCharacterProfiles([]));
-  }, []);
-  useEffect(() => {
     fetch("http://127.0.0.1:4317/settings/openai")
       .then((response) => response.json())
-      .then((data: { settings?: { imageApiKeyConfigured?: boolean } }) =>
-        setImageApiReady(Boolean(data.settings?.imageApiKeyConfigured)),
+      .then(
+        (data: {
+          settings?: {
+            imageApiKeyConfigured?: boolean;
+          };
+        }) => {
+          setImageApiReady(Boolean(data.settings?.imageApiKeyConfigured));
+        },
       )
-      .catch(() => setImageApiReady(false));
+      .catch(() => {
+        setImageApiReady(false);
+      });
   }, []);
   const projectTitle = useMemo(() => {
-    const firstLine = sourceText
-      .trim()
-      .split(/\r?\n/u)
-      .find((line) => line.trim());
-    if (!firstLine) return "未命名视频";
-    const cleaned = firstLine.replace(/[。！？!?]+$/u, "").trim();
-    return cleaned.length > 28 ? `${cleaned.slice(0, 28)}…` : cleaned;
+    return shortProjectTitle(sourceText);
   }, [sourceText]);
 
   async function submit() {
     const copy = sourceText.trim();
     if (copy.length < 2) {
       setError("请先输入主题或完整文案");
-      return;
-    }
-    if (
-      outputMode === "NARRATED" &&
-      voiceStyle === "voxcpm2" &&
-      !selectedVoiceProfileId &&
-      (!voiceReferenceFile ||
-        !voiceConsentConfirmed ||
-        voiceProfileName.trim().length < 1)
-    ) {
-      setError("请上传声音并确认声音授权");
-      setActiveTab("voice");
       return;
     }
     if (imagePrompt.trim().length < 3) {
@@ -176,169 +294,143 @@ export function CreativeStudio({
       return;
     }
     if (!imageApiReady) {
-      setError("提示词生图需要第三方图像 API，请先前往 API 设置保存密钥");
+      setError("提示词生图需要图像 API，请先前往 API 设置保存密钥");
       setActiveTab("visual");
       return;
     }
+    if (outputMode === "NARRATED" && !selectedVoiceProfileId) {
+      setError("请先在配音板块上传并选择音色");
+      setActiveTab("voice");
+      return;
+    }
 
-    setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: projectTitle,
-          sourceText: copy,
-          sourceKind,
-          aspectRatio,
-          language: "zh-CN",
-          voiceStyle,
-          voiceProfileId: selectedVoiceProfileId || undefined,
-          characterProfileId:
-            selectedCharacterProfileId &&
-            selectedCharacterProfileId !== "__NONE__"
-              ? selectedCharacterProfileId
-              : undefined,
-          accentColor: "#19b9c6",
-          visualMode: "AI_IMAGE",
-          imagePrompt: imagePrompt.trim(),
-          includeNarration: outputMode === "NARRATED",
-          includeSubtitles: outputMode === "NARRATED",
-          useTextOpeningTemplate,
-          backgroundMusic: music,
-          subtitleStyle: {
-            mode: "CHINESE",
-            fontSize: 60,
-            position: "BOTTOM",
-            outline: true,
-            shadow: true,
-            keywordHighlight: true,
+      await withBusyState(setBusy, async () => {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: projectName.trim() || projectTitle,
+            sourceText: copy,
+            sourceKind,
+            aspectRatio:
+              videoTemplate === "KNOWLEDGE_BOARD" ? "LANDSCAPE" : aspectRatio,
+            language: "zh-CN",
+            voiceStyle: selectedVoiceProfileId ? "indextts2" : "none",
+            voiceProfileId: selectedVoiceProfileId || undefined,
+            characterProfileId:
+              selectedCharacterProfileId &&
+              selectedCharacterProfileId !== "__NONE__"
+                ? selectedCharacterProfileId
+                : undefined,
+            accentColor: "#ee86aa",
+            visualMode: "AI_IMAGE",
+            imagePrompt: imagePrompt.trim(),
+            includeNarration: outputMode === "NARRATED",
+            includeSubtitles: outputMode === "NARRATED",
+            narrationVolume,
+            backgroundMusicVolume,
+            backgroundMusic: music,
+            subtitleStyle: {
+              mode: "CHINESE",
+              fontSize: 60,
+              position: "BOTTOM",
+              outline: true,
+              shadow: true,
+              keywordHighlight: true,
 
-            videoTemplate,
-            headerText:
-              videoTemplate === "KNOWLEDGE_BOARD" ? templateHeader.trim() : "",
-            mainTitle: mainTitle.trim(),
-            leftVerticalText: leftVerticalText.trim(),
-            rightVerticalText: rightVerticalText.trim(),
-            transitionsEnabled,
-          },
-        }),
+              videoTemplate,
+              headerText:
+                videoTemplate === "KNOWLEDGE_BOARD"
+                  ? templateHeader.trim()
+                  : "",
+              mainTitle: mainTitle.trim(),
+              leftVerticalText: leftVerticalText.trim(),
+              rightVerticalText: rightVerticalText.trim(),
+              transitionsEnabled,
+              customTitle: projectName.trim().length > 0,
+              imageSize:
+                videoTemplate === "KNOWLEDGE_BOARD" ? "21:9" : imageSize,
+              coverTemplate: selectedCoverTemplate,
+            },
+          }),
+        });
+        const data = projectResponseSchema.parse(await response.json());
+        if (!response.ok || !data.project) {
+          throw new Error(
+            data.issues?.[0]?.message
+              ? `项目校验失败：${data.issues[0].message}`
+              : (data.error ?? "项目创建失败"),
+          );
+        }
+        if (!selectedCharacterProfileId && characterReferenceFile) {
+          const referenceFile = characterReferenceFile;
+          const setup = await fetch(
+            `/api/projects/${data.project.id}/character-reference`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                profileName: characterProfileName.trim(),
+                fileName: referenceFile.name,
+                contentType: referenceFile.type,
+                byteSize: referenceFile.size,
+              }),
+            },
+          );
+          const setupData = (await setup.json()) as {
+            assetId?: string;
+            uploadUrl?: string;
+            error?: string;
+          };
+          if (!setup.ok || !setupData.uploadUrl || !setupData.assetId) {
+            throw new Error(setupData.error ?? "参考人物保存失败");
+          }
+          const upload = await fetch(setupData.uploadUrl, {
+            method: "PUT",
+            headers: { "content-type": referenceFile.type },
+            body: referenceFile,
+          });
+          if (!upload.ok) throw new Error("参考人物上传失败");
+        }
+        const generation = await fetch(
+          `/api/projects/${data.project.id}/storyboard/generate`,
+          { method: "POST" },
+        );
+        if (!generation.ok) {
+          const failure = projectResponseSchema.safeParse(
+            await generation.json(),
+          );
+          const issue = failure.success
+            ? failure.data.issues?.[0]?.message
+            : undefined;
+          throw new Error(
+            issue
+              ? `分镜任务校验失败：${issue}`
+              : failure.success
+                ? (failure.data.error ?? "项目已创建，但分镜任务启动失败")
+                : "项目已创建，但分镜任务启动失败",
+          );
+        }
+        await onProjectCreated(data.project.id);
       });
-      const data = (await response.json()) as {
-        project?: { id: string };
-        error?: string;
-      };
-      if (!response.ok || !data.project) {
-        throw new Error(data.error ?? "项目创建失败");
-      }
-      if (!selectedCharacterProfileId && characterReferenceFile) {
-        const referenceFile = characterReferenceFile;
-        const setup = await fetch(
-          `/api/projects/${data.project.id}/character-reference`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              profileName: characterProfileName.trim(),
-              fileName: referenceFile.name,
-              contentType: referenceFile.type,
-              byteSize: referenceFile.size,
-            }),
-          },
-        );
-        const setupData = (await setup.json()) as {
-          assetId?: string;
-          uploadUrl?: string;
-          error?: string;
-        };
-        if (!setup.ok || !setupData.uploadUrl || !setupData.assetId) {
-          throw new Error(setupData.error ?? "参考人物保存失败");
-        }
-        const upload = await fetch(setupData.uploadUrl, {
-          method: "PUT",
-          headers: { "content-type": referenceFile.type },
-          body: referenceFile,
-        });
-        if (!upload.ok) throw new Error("参考人物上传失败");
-      }
-      if (
-        outputMode === "NARRATED" &&
-        voiceStyle === "voxcpm2" &&
-        !selectedVoiceProfileId
-      ) {
-        const referenceFile = voiceReferenceFile;
-        if (!referenceFile) throw new Error("VOICE_REFERENCE_REQUIRED");
-        const extension = referenceFile.name.split(".").pop()?.toLowerCase();
-        const referenceContentType =
-          referenceFile.type ||
-          ({
-            wav: "audio/wav",
-            mp3: "audio/mpeg",
-            m4a: "audio/mp4",
-            aac: "audio/aac",
-            flac: "audio/flac",
-          }[extension ?? ""] ??
-            "application/octet-stream");
-        const endpoint = "voice-clone";
-        const setup = await fetch(
-          `/api/projects/${data.project.id}/${endpoint}`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              profileName: voiceProfileName.trim(),
-              fileName: referenceFile.name,
-              contentType: referenceContentType,
-              byteSize: referenceFile.size,
-              promptText: voicePromptText.trim(),
-              promptLanguage: voicePromptLanguage,
-              serviceUrl: voiceServiceUrl,
-              consentConfirmed: voiceConsentConfirmed,
-            }),
-          },
-        );
-        const setupData = (await setup.json()) as {
-          assetId?: string;
-          uploadUrl?: string;
-          error?: string;
-        };
-        if (!setup.ok || !setupData.uploadUrl || !setupData.assetId) {
-          throw new Error(setupData.error ?? "VoxCPM2 声音参考配置失败");
-        }
-        const upload = await fetch(setupData.uploadUrl, {
-          method: "PUT",
-          headers: { "content-type": referenceContentType },
-          body: referenceFile,
-        });
-        if (!upload.ok) throw new Error("声音上传失败");
-      }
-      const generation = await fetch(
-        `/api/projects/${data.project.id}/storyboard/generate`,
-        { method: "POST" },
-      );
-      if (!generation.ok) {
-        throw new Error("项目已创建，但分镜任务启动失败");
-      }
-      await onProjectCreated(data.project.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建失败");
-      setBusy(false);
     }
   }
 
   return (
-    <main className="h-full overflow-y-auto bg-[#e7edef] p-2 text-[#20252b] lg:overflow-hidden">
-      <div className="grid min-h-[calc(100vh-1rem)] gap-2 lg:h-full lg:grid-cols-[minmax(0,1fr)_440px]">
+    <main className="pink-blue-theme h-full overflow-y-auto bg-[#e7edef] p-0 text-[#20252b] lg:overflow-hidden">
+      <div className="grid min-h-full gap-2 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_440px]">
         <section className="relative flex min-h-[680px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgb(20_35_45/8%)]">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.04] px-6 py-4 md:px-10">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.04] px-6 py-3 md:px-10">
             <div className="flex items-center gap-3">
-              <span
-                className="grid size-9 place-items-center rounded-xl bg-[#11151b] text-white"
-                aria-hidden="true"
-              >
-                ●
-              </span>
+              <img
+                src="/stickmotion-logo.png"
+                alt="StickMotion"
+                className="size-9 object-contain"
+              />
               <div>
                 <p className="text-sm font-black">StickMotion 创作台</p>
                 <p className="text-xs text-black/35">{projectTitle}</p>
@@ -370,27 +462,19 @@ export function CreativeStudio({
             </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-6 md:px-[10%] md:pt-8">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-[#a0a8b3]">
-              <span>支持创作想法、口播稿或分镜脚本</span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!sourceText) setSourceText(sampleCopy);
-                  setHint("文案助手已准备示例结构，你可以继续修改");
-                }}
-                className="font-black text-[#477cff]"
-              >
-                ✦ 文案助手
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSourceText(sampleCopy)}
-              className="mt-3 w-fit rounded-lg border border-[#dfe5e8] px-3 py-1.5 text-xs font-bold text-[#8d97a3] transition hover:border-[#19b9c6] hover:text-[#19a8b5]"
-            >
-              示例文案
-            </button>
+          <div className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3 md:px-[10%] md:pt-4">
+            <label className="mt-3 grid gap-1.5">
+              <span className="text-xs font-black text-[#8d97a3]">
+                项目名称
+              </span>
+              <input
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                maxLength={120}
+                placeholder="留空则根据文案自动生成"
+                className="w-full rounded-xl border border-black/[0.08] bg-white px-4 py-3 text-sm font-bold outline-none transition placeholder:text-black/25 focus:border-[#19b9c6]"
+              />
+            </label>
 
             <textarea
               value={sourceText}
@@ -405,7 +489,7 @@ export function CreativeStudio({
                   ? "粘贴你的完整文案。系统会按照内容自然拆分分镜，视频时长由文案决定……"
                   : "输入一个创意主题，例如：为什么越重要的事情越容易拖延？"
               }
-              className="mt-5 min-h-[430px] flex-1 resize-none border-0 bg-transparent text-lg leading-9 text-[#303740] outline-none placeholder:text-[#c6ccd2]"
+              className="mt-4 min-h-[430px] flex-1 resize-none border-0 bg-transparent text-lg leading-9 text-[#303740] outline-none placeholder:text-[#c6ccd2]"
             />
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.05] pt-4 text-xs text-black/40">
@@ -426,13 +510,41 @@ export function CreativeStudio({
                 <span>
                   {sourceText.length.toLocaleString("zh-CN")} / 30,000
                 </span>
-                <label className="flex cursor-pointer items-center gap-2">
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition ${
+                    keepOriginal
+                      ? "border-[#16bec8]/30 bg-cyan-50 text-[#0f8791]"
+                      : "border-black/10 bg-white text-black/40 hover:border-black/20"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={keepOriginal}
                     onChange={(event) => setKeepOriginal(event.target.checked)}
-                    className="size-4 accent-[#19b9c6]"
+                    className="sr-only"
                   />
+                  <span
+                    className={`grid h-4 w-4 place-items-center rounded-full border-2 transition ${
+                      keepOriginal
+                        ? "border-[#16bec8] bg-[#16bec8] text-white"
+                        : "border-black/20 bg-white"
+                    }`}
+                  >
+                    {keepOriginal && (
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    )}
+                  </span>
                   按原文配旁白
                 </label>
               </div>
@@ -475,6 +587,10 @@ export function CreativeStudio({
                 setImagePrompt={setImagePrompt}
                 aspectRatio={aspectRatio}
                 setAspectRatio={setAspectRatio}
+                imageSize={imageSize}
+                setImageSize={setImageSize}
+                videoTemplate={videoTemplate}
+                setVideoTemplate={selectVideoTemplate}
                 imageApiReady={imageApiReady}
                 onOpenSettings={onOpenSettings}
               />
@@ -482,17 +598,22 @@ export function CreativeStudio({
             {activeTab === "template" && (
               <TemplatePanel
                 videoTemplate={videoTemplate}
-                setVideoTemplate={setVideoTemplate}
+                setVideoTemplate={selectVideoTemplate}
                 templateHeader={templateHeader}
                 setTemplateHeader={setTemplateHeader}
-                useTextOpeningTemplate={useTextOpeningTemplate}
-                setUseTextOpeningTemplate={setUseTextOpeningTemplate}
                 leftVerticalText={leftVerticalText}
                 setLeftVerticalText={setLeftVerticalText}
                 rightVerticalText={rightVerticalText}
                 setRightVerticalText={setRightVerticalText}
                 mainTitle={mainTitle}
                 setMainTitle={setMainTitle}
+              />
+            )}
+            {activeTab === "cover" && (
+              <CoverPanel
+                templates={coverTemplates}
+                selectedTemplateId={selectedCoverTemplateId}
+                onSelectTemplate={setSelectedCoverTemplateId}
               />
             )}
             {activeTab === "transition" && (
@@ -531,10 +652,6 @@ export function CreativeStudio({
                 setVoiceStyle={setVoiceStyle}
                 referenceFile={voiceReferenceFile}
                 setReferenceFile={setVoiceReferenceFile}
-                promptText={voicePromptText}
-                setPromptText={setVoicePromptText}
-                promptLanguage={voicePromptLanguage}
-                setPromptLanguage={setVoicePromptLanguage}
                 serviceUrl={voiceServiceUrl}
                 setServiceUrl={setVoiceServiceUrl}
                 consentConfirmed={voiceConsentConfirmed}
@@ -545,6 +662,13 @@ export function CreativeStudio({
                     ...current.filter((item) => item.id !== profile.id),
                   ]);
                   setSelectedVoiceProfileId(profile.id);
+                }}
+                onProfileRenamed={(profile) => {
+                  setVoiceProfiles((current) =>
+                    current.map((item) =>
+                      item.id === profile.id ? profile : item,
+                    ),
+                  );
                 }}
                 onProfileDeleted={(profileId) => {
                   setVoiceProfiles((current) =>
@@ -594,8 +718,8 @@ export function CreativeStudio({
             <div className="mb-3 flex items-center justify-between text-xs text-[#8d97a3]">
               <span>提示词 AI 生图 · 一句一张</span>
               <span>
-                {"\u751f\u6210\u6bd4\u4f8b\uff1a"}
-                {aspectRatio === "PORTRAIT" ? "9:16" : "16:9"}
+                {"\u751f\u6210\u5c3a\u5bf8\uff1a"}
+                {videoTemplate === "KNOWLEDGE_BOARD" ? "21:9" : imageSize}
               </span>
             </div>
             <button
@@ -606,9 +730,9 @@ export function CreativeStudio({
                 imagePrompt.trim().length < 3
               }
               onClick={() => void submit()}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0c1016] px-5 py-4 text-lg font-black text-white transition hover:bg-[#19aeb8] disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4168a7] px-5 py-4 text-lg font-black text-white transition hover:bg-[#ee86aa] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <span className="grid size-6 place-items-center rounded-full bg-gradient-to-br from-cyan-300 via-blue-500 to-violet-500 text-xs">
+              <span className="grid size-6 place-items-center rounded-full bg-gradient-to-br from-[#f4a4bd] via-[#6c93e7] to-[#9cbaff] text-xs">
                 ✦
               </span>
               {busy ? "正在拆分文案…" : "拆分文案"}
@@ -660,6 +784,33 @@ function PromptTemplateControls({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [templateMenuOpenUp, setTemplateMenuOpenUp] = useState(false);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const templateMenuRef = useRef<HTMLDivElement>(null);
+
+  const selectedTemplate = templates.find((item) => item.id === selectedId);
+
+  useEffect(() => {
+    if (!templateMenuOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (
+        templateMenuRef.current &&
+        !templateMenuRef.current.contains(event.target as Node)
+      ) {
+        setTemplateMenuOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setTemplateMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [templateMenuOpen]);
 
   useEffect(() => {
     let active = true;
@@ -751,9 +902,13 @@ function PromptTemplateControls({
     }
   }
 
-  async function removeTemplate() {
-    if (!selectedId || !window.confirm(promptTemplateText.confirmRemove))
-      return;
+  function openRemoveTemplate() {
+    if (!selectedId) return;
+    setRemoveConfirmOpen(true);
+  }
+
+  async function confirmRemoveTemplate() {
+    if (!selectedId) return;
     setBusy(true);
     setFailed(false);
     setMessage("");
@@ -769,6 +924,7 @@ function PromptTemplateControls({
       setSelectedId("");
       setTemplateName("");
       setMessage(promptTemplateText.removed);
+      setRemoveConfirmOpen(false);
     } catch (reason) {
       setFailed(true);
       setMessage(
@@ -779,6 +935,17 @@ function PromptTemplateControls({
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleTemplateMenu() {
+    const nextOpen = !templateMenuOpen;
+    if (nextOpen && templateMenuRef.current) {
+      const rect = templateMenuRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setTemplateMenuOpenUp(spaceBelow < 300 && spaceAbove > spaceBelow);
+    }
+    setTemplateMenuOpen(nextOpen);
   }
 
   return (
@@ -794,18 +961,144 @@ function PromptTemplateControls({
         </button>
       </div>
       <div className="mt-3 grid gap-2">
-        <select
-          value={selectedId}
-          onChange={(event) => selectTemplate(event.target.value)}
-          className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#16bec8]"
-        >
-          <option value="">{promptTemplateText.select}</option>
-          {templates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.name}
-            </option>
-          ))}
-        </select>
+        <div ref={templateMenuRef} className="relative">
+          <button
+            type="button"
+            onClick={toggleTemplateMenu}
+            className={`flex h-11 w-full items-center gap-2.5 rounded-xl border bg-white px-3 text-left shadow-sm transition ${
+              templateMenuOpen
+                ? "border-[#16bec8] ring-2 ring-cyan-100"
+                : "border-black/[0.08] hover:border-[#16bec8]/40 hover:shadow"
+            }`}
+          >
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[#159aa6]">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" />
+                <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <strong
+                className={`block truncate text-sm font-black ${
+                  selectedTemplate ? "text-[#20252b]" : "text-black/45"
+                }`}
+              >
+                {selectedTemplate
+                  ? selectedTemplate.name
+                  : promptTemplateText.select}
+              </strong>
+            </span>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 text-black/45 transition ${
+                templateMenuOpen ? "rotate-180" : ""
+              }`}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {templateMenuOpen && (
+            <div
+              className={`absolute inset-x-0 z-30 max-h-64 overflow-y-auto rounded-xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_40px_rgb(0_0_0/14%)] ${
+                templateMenuOpenUp ? "bottom-full mb-2" : "top-full mt-2"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  selectTemplate("");
+                  setTemplateMenuOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                  !selectedTemplate ? "bg-cyan-50" : "hover:bg-[#f1f4f5]"
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-sm">
+                    {promptTemplateText.create}
+                  </strong>
+                </span>
+                {!selectedTemplate && (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#159aa6"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0"
+                  >
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                )}
+              </button>
+              {templates.map((template) => {
+                const active = template.id === selectedId;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => {
+                      selectTemplate(template.id);
+                      setTemplateMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                      active ? "bg-cyan-50" : "hover:bg-[#f1f4f5]"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-sm">
+                        {template.name}
+                      </strong>
+                      <span className="mt-0.5 block truncate text-[11px] text-black/40">
+                        {template.content.slice(0, 40)}
+                      </span>
+                    </span>
+                    {active && (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#159aa6"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+              {templates.length === 0 && (
+                <p className="px-3 py-4 text-center text-xs text-black/35">
+                  暂无模板
+                </p>
+              )}
+            </div>
+          )}
+        </div>
         <input
           value={templateName}
           onChange={(event) => setTemplateName(event.target.value)}
@@ -825,7 +1118,7 @@ function PromptTemplateControls({
           <button
             type="button"
             disabled={busy || !selectedId}
-            onClick={() => void removeTemplate()}
+            onClick={openRemoveTemplate}
             className="rounded-xl border border-red-200 bg-white px-3 py-2.5 text-xs font-black text-red-600 disabled:opacity-30"
           >
             {promptTemplateText.remove}
@@ -839,6 +1132,15 @@ function PromptTemplateControls({
           {message}
         </p>
       )}
+      <ConfirmDialog
+        open={removeConfirmOpen}
+        title="删除提示词模板"
+        description={promptTemplateText.confirmRemove}
+        confirmText="确认删除"
+        busy={busy}
+        onConfirm={() => void confirmRemoveTemplate()}
+        onClose={() => setRemoveConfirmOpen(false)}
+      />
     </div>
   );
 }
@@ -882,13 +1184,262 @@ function TransitionPanel({
     </div>
   );
 }
+
+function CoverPanel({
+  templates,
+  selectedTemplateId,
+  onSelectTemplate,
+}: {
+  templates: SavedCoverTemplate[];
+  selectedTemplateId: string;
+  onSelectTemplate: (templateId: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
+  const selectedTemplate = templates.find(
+    (template) => template.id === selectedTemplateId,
+  );
+  const noCoverSelected =
+    selectedTemplateId === noCoverTemplateId || !selectedTemplate;
+
+  return (
+    <div className="grid gap-5">
+      <div>
+        <h2 className="font-black">封面模板</h2>
+        <p className="mt-1 text-xs leading-5 text-black/40">
+          选择生成视频时使用的封面模板，可在左侧“封面”页编辑模板内容。
+        </p>
+      </div>
+
+      <div className="grid gap-2 text-sm font-black text-black/65">
+        <span>封面</span>
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-haspopup="listbox"
+            aria-expanded={menuOpen}
+            className={`flex w-full items-center justify-between gap-4 rounded-2xl border bg-white px-4 py-3.5 text-left outline-none transition ${
+              menuOpen
+                ? "border-[#16bec8] shadow-[0_0_0_3px_rgb(22_190_200/10%)]"
+                : "border-black/[0.08] shadow-sm hover:border-black/15 hover:shadow-md"
+            }`}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#11151b] text-white shadow-sm">
+                {noCoverSelected ? (
+                  <svg
+                    width="19"
+                    height="19"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="m5.6 5.6 12.8 12.8" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="19"
+                    height="19"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="4" y="3" width="16" height="18" rx="2" />
+                    <path d="M8 8h8M8 12h6M8 16h4" />
+                  </svg>
+                )}
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-sm font-black text-[#1f2937]">
+                  {noCoverSelected ? "不添加封面" : selectedTemplate?.name}
+                </strong>
+                <span className="mt-0.5 block text-[11px] font-bold text-black/35">
+                  {noCoverSelected
+                    ? "无封面视频"
+                    : `${selectedTemplate?.templateName} · 3:4`}
+                </span>
+              </span>
+            </span>
+            <svg
+              width="17"
+              height="17"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 text-black/35 transition-transform ${
+                menuOpen ? "rotate-180" : ""
+              }`}
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {menuOpen ? (
+            <div
+              role="listbox"
+              aria-label="封面模板"
+              className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_45px_rgb(15_23_42/15%)]"
+            >
+              <button
+                type="button"
+                role="option"
+                aria-selected={noCoverSelected}
+                data-template-id={noCoverTemplateId}
+                onClick={() => {
+                  onSelectTemplate(noCoverTemplateId);
+                  setMenuOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition ${
+                  noCoverSelected ? "bg-cyan-50" : "hover:bg-cyan-50"
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#11151b] text-xs font-black text-white">
+                    <svg
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="m5.6 5.6 12.8 12.8" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block truncate text-sm font-black text-[#1f2937]">
+                      不添加封面
+                    </strong>
+                    <span className="mt-0.5 block text-[11px] font-bold text-black/35">
+                      无封面视频
+                    </span>
+                  </span>
+                </span>
+                {noCoverSelected && (
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#16bec8] text-white">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </span>
+                )}
+              </button>
+              {templates.map((template) => {
+                const selected = template.id === selectedTemplateId;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    data-template-id={template.id}
+                    onClick={() => {
+                      onSelectTemplate(template.id);
+                      setMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition ${
+                      selected ? "bg-cyan-50" : "hover:bg-cyan-50"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#11151b] text-xs font-black text-white">
+                        DY
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block truncate text-sm font-black text-[#1f2937]">
+                          {template.name}
+                        </strong>
+                        <span className="mt-0.5 block text-[11px] font-bold text-black/35">
+                          {template.templateName} · 3:4
+                        </span>
+                      </span>
+                    </span>
+                    {selected && (
+                      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#16bec8] text-white">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <p className="rounded-xl bg-cyan-50 px-4 py-3 text-xs font-bold leading-5 text-cyan-800">
+        {noCoverSelected
+          ? "当前选择不添加封面，生成视频时不会附带封面。"
+          : `当前共有 ${templates.length} 个封面模板：${templates
+              .map((template) => template.name)
+              .join("、")}`}
+      </p>
+    </div>
+  );
+}
 function TemplatePanel({
   videoTemplate,
   setVideoTemplate,
   templateHeader,
   setTemplateHeader,
-  useTextOpeningTemplate,
-  setUseTextOpeningTemplate,
   leftVerticalText,
   setLeftVerticalText,
   rightVerticalText,
@@ -900,8 +1451,6 @@ function TemplatePanel({
   setVideoTemplate: (value: VideoTemplate) => void;
   templateHeader: string;
   setTemplateHeader: (value: string) => void;
-  useTextOpeningTemplate: boolean;
-  setUseTextOpeningTemplate: (value: boolean) => void;
   leftVerticalText: string;
   setLeftVerticalText: (value: string) => void;
   rightVerticalText: string;
@@ -928,27 +1477,65 @@ function TemplatePanel({
                 : "border-black/[0.07] bg-white"
             } relative cursor-pointer`}
           >
-            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10 bg-white">
-              <span className="absolute inset-x-[14%] top-[8%] h-1 rounded bg-black/70" />
-              <span className="absolute inset-x-[17%] top-[25%] bottom-[27%] rounded bg-gradient-to-br from-slate-100 to-cyan-100" />
-              <span className="absolute inset-x-0 bottom-[20%] h-px bg-black" />
-              <span className="absolute inset-x-[25%] bottom-[8%] h-1.5 rounded bg-black/70" />
+            <span
+              className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10"
+              style={{
+                backgroundColor: "#FFFFFF",
+                fontFamily: "DouyinSansBold, Microsoft YaHei",
+              }}
+            >
+              <span className="absolute inset-x-[8%] top-[3%] flex h-[11.5%] items-center justify-center text-[6px] font-black text-black">
+                {mainTitle || "\u6807\u9898"}
+              </span>
+              <span className="absolute inset-x-[12%] top-[14.5%] flex h-[6.5%] items-center justify-center gap-[1.5%]">
+                <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
+                <span className="max-w-[82%] overflow-hidden whitespace-nowrap text-[3px] font-bold tracking-[0.2em] text-[#797979]">
+                  {templateHeader}
+                </span>
+                <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
+              </span>
+              <span
+                className="absolute top-[24%] bottom-[24%] left-[2.5%] overflow-hidden text-[3px] leading-[1.45] text-[#cccccc]"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                {Array.from(leftVerticalText.replace(/\n/gu, ""))}
+              </span>
+              <span
+                className="absolute top-[24%] bottom-[24%] right-[2.5%] overflow-hidden text-[3px] leading-[1.45] text-[#cccccc]"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                {Array.from(rightVerticalText.replace(/\n/gu, ""))}
+              </span>
+              <span className="absolute inset-x-0 bottom-[18.5%] h-px bg-black" />
+              <span className="absolute inset-x-0 bottom-0 flex h-[18.5%] items-center justify-center">
+                <span
+                  className="text-[4px] font-black leading-none text-white"
+                  style={{
+                    WebkitTextStroke: "0.4px black",
+                    paintOrder: "stroke fill",
+                  }}
+                >
+                  {"\u9884\u89c8\u5b57\u5e55"}
+                </span>
+              </span>
             </span>
-            <strong className="block text-sm">知识白板</strong>
+            <div className="flex items-center justify-between gap-2">
+              <strong className="block text-sm">知识白板</strong>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setVideoTemplate("KNOWLEDGE_BOARD");
+                  setModalOpen(true);
+                }}
+                className="shrink-0 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white transition hover:bg-black"
+              >
+                编辑
+              </button>
+            </div>
             <span className="mt-1 block text-[11px] text-black/40">
               图片缩小，字幕不遮挡画面
             </span>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setVideoTemplate("KNOWLEDGE_BOARD");
-                setModalOpen(true);
-              }}
-              className="absolute right-2 top-2 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white"
-            >
-              编辑
-            </button>
           </div>
           <button
             type="button"
@@ -970,37 +1557,6 @@ function TemplatePanel({
         </div>
       </section>
 
-      <section>
-        <h3 className="text-sm font-black">开场模板</h3>
-        <p className="mt-1 text-xs leading-5 text-black/40">
-          手动选择是否使用红字开场：首句去标点、最多两行，并配上水滴音。
-        </p>
-        <div className="mt-3 grid grid-cols-2 rounded-xl bg-[#f0f3f4] p-1">
-          <button
-            type="button"
-            onClick={() => setUseTextOpeningTemplate(false)}
-            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
-              !useTextOpeningTemplate
-                ? "bg-white text-black shadow-sm"
-                : "text-black/40"
-            }`}
-          >
-            不使用
-          </button>
-          <button
-            type="button"
-            onClick={() => setUseTextOpeningTemplate(true)}
-            className={`rounded-lg px-3 py-3 text-xs font-black transition ${
-              useTextOpeningTemplate
-                ? "bg-white text-black shadow-sm"
-                : "text-black/40"
-            }`}
-          >
-            红字开场
-          </button>
-        </div>
-      </section>
-
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
@@ -1016,53 +1572,75 @@ function TemplatePanel({
             </div>
 
             <div className="mt-4 grid gap-5 lg:grid-cols-2">
-              <div className="relative aspect-video overflow-hidden rounded-xl border border-black/10 bg-white">
-                {mainTitle.trim() ? (
-                  <div
-                    className="absolute inset-x-[5%] top-[3%] flex h-[7%] items-center justify-center text-xl font-black text-black"
-                    style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
-                  >
-                    {mainTitle}
+              <div
+                className="relative aspect-video overflow-hidden rounded-xl border border-black/10"
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  fontFamily: "DouyinSansBold, Microsoft YaHei",
+                }}
+              >
+                <div className="absolute inset-x-[8%] top-[2.5%] flex h-[11.5%] items-center justify-center overflow-hidden whitespace-nowrap text-xl font-black leading-none text-black">
+                  {mainTitle || "\u6807\u9898"}
+                </div>
+                <div className="absolute inset-x-[12%] top-[14.5%] flex h-[6.5%] items-center justify-center gap-[1.5%]">
+                  <div className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
+                  <div className="max-w-[82%] overflow-hidden whitespace-nowrap text-[10px] font-bold tracking-[0.2em] text-[#797979]">
+                    {templateHeader || "\u9876\u90e8\u680f\u76ee\u6807\u9898"}
                   </div>
-                ) : null}
-                <div
-                  className="absolute inset-x-[5%] top-[6.5%] flex h-[5%] items-center justify-center text-[11px] font-bold text-black/80"
-                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
-                >
-                  {templateHeader || "顶部栏目标题"}
+                  <div className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
                 </div>
-                <div className="absolute top-[8.3%] left-[8%] h-0.5 w-[6%] bg-black/70" />
-                <div className="absolute top-[8.3%] right-[8%] h-0.5 w-[6%] bg-black/70" />
-                <div
-                  className="absolute top-[22%] bottom-[22%] left-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
-                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
-                >
-                  {Array.from(leftVerticalText.replace(/\n/gu, "")).map(
-                    (character, index) => (
-                      <span key={`left-${index}`}>{character}</span>
-                    ),
-                  )}
+                <div className="absolute top-[22%] bottom-[22%] left-[3.125%] flex -translate-x-1/2 flex-col items-center justify-center text-[7px] leading-none text-[#cccccc]">
+                  {leftVerticalText
+                    .split(/\r?\n\s*\r?\n/u)
+                    .filter((group) => group.trim())
+                    .map((group, groupIndex) => (
+                      <span
+                        key={`left-group-${groupIndex}`}
+                        className="mb-1 flex flex-col items-center gap-0.5 last:mb-0"
+                      >
+                        {Array.from(group.replace(/\r?\n/gu, "").trim()).map(
+                          (character, index) => (
+                            <span key={`left-${groupIndex}-${index}`}>
+                              {character}
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    ))}
                 </div>
-                <div
-                  className="absolute top-[22%] bottom-[22%] right-[3%] flex flex-col items-center justify-center gap-1 text-[10px] text-black/60"
-                  style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
-                >
-                  {Array.from(rightVerticalText.replace(/\n/gu, "")).map(
-                    (character, index) => (
-                      <span key={`right-${index}`}>{character}</span>
-                    ),
-                  )}
+                <div className="absolute top-[22%] right-[3.125%] bottom-[22%] flex translate-x-1/2 flex-col items-center justify-center text-[7px] leading-none text-[#cccccc]">
+                  {rightVerticalText
+                    .split(/\r?\n\s*\r?\n/u)
+                    .filter((group) => group.trim())
+                    .map((group, groupIndex) => (
+                      <span
+                        key={`right-group-${groupIndex}`}
+                        className="mb-1 flex flex-col items-center gap-0.5 last:mb-0"
+                      >
+                        {Array.from(group.replace(/\r?\n/gu, "").trim()).map(
+                          (character, index) => (
+                            <span key={`right-${groupIndex}-${index}`}>
+                              {character}
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    ))}
                 </div>
-                <div className="absolute inset-x-0 bottom-[8%] flex justify-center">
+                <div className="absolute inset-x-0 bottom-[18.5%] h-px bg-black" />
+                <div className="absolute inset-x-0 bottom-0 flex h-[18.5%] items-center justify-center">
                   <span
-                    className="px-2 text-base font-black text-white"
-                    style={{ WebkitTextStroke: "3px black" }}
+                    className="px-2 text-base font-black leading-none tracking-wide text-white"
+                    style={{
+                      WebkitTextStroke: "1px rgba(0, 0, 0, 0.92)",
+                      paintOrder: "stroke fill",
+                      textShadow: "0 1px 2px rgba(0, 0, 0, 0.45)",
+                    }}
                   >
-                    朗读字幕示例
+                    {"\u6717\u8bfb\u5b57\u5e55\u793a\u4f8b"}
                   </span>
                 </div>
               </div>
-
               <div className="grid gap-3">
                 <label className="grid gap-1.5 text-sm font-bold">
                   主标题
@@ -1088,9 +1666,11 @@ function TemplatePanel({
                   左侧竖排文字
                   <textarea
                     value={leftVerticalText}
-                    onChange={(event) => setLeftVerticalText(event.target.value)}
+                    onChange={(event) =>
+                      setLeftVerticalText(event.target.value)
+                    }
                     rows={5}
-                    placeholder="@杰研社进化论"
+                    placeholder="无限进化的Jay"
                     className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
                   />
                 </label>
@@ -1117,8 +1697,11 @@ function TemplatePanel({
 function VisualPanel({
   imagePrompt,
   setImagePrompt,
-  aspectRatio,
   setAspectRatio,
+  imageSize,
+  setImageSize,
+  videoTemplate,
+  setVideoTemplate,
   imageApiReady,
   onOpenSettings,
 }: {
@@ -1126,17 +1709,86 @@ function VisualPanel({
   setImagePrompt: (value: string) => void;
   aspectRatio: AspectRatio;
   setAspectRatio: (value: AspectRatio) => void;
+  imageSize: ImageSizePreset;
+  setImageSize: (value: ImageSizePreset) => void;
+  videoTemplate: VideoTemplate;
+  setVideoTemplate: (value: VideoTemplate) => void;
   imageApiReady: boolean;
   onOpenSettings: () => void;
 }) {
-  const ratios: Array<{
-    id: AspectRatio;
+  const generationSizes: Array<{
+    id: ImageSizePreset;
     label: string;
     detail: string;
+    shape: string;
   }> = [
-    { id: "LANDSCAPE", label: "16:9 横屏", detail: "适合电脑、网页与横版视频" },
-    { id: "PORTRAIT", label: "9:16 竖屏", detail: "适合短视频与手机全屏" },
+    { id: "9:16", label: "9:16", detail: "720x1280", shape: "9/16" },
+    { id: "16:9", label: "16:9", detail: "1280x720", shape: "16/9" },
+    { id: "3:2", label: "3:2", detail: "1008x672", shape: "3/2" },
+    { id: "21:9", label: "21:9", detail: "1344x576", shape: "21/9" },
+    { id: "1024x1024", label: "1:1", detail: "1024x1024", shape: "1/1" },
+    { id: "1040x832", label: "5:4", detail: "1040x832", shape: "5/4" },
+    { id: "1024x768", label: "4:3", detail: "1024x768", shape: "4/3" },
+    { id: "832x1040", label: "4:5", detail: "832x1040", shape: "4/5" },
+    { id: "768x1024", label: "3:4", detail: "768x1024", shape: "3/4" },
+    { id: "672x1008", label: "2:3", detail: "672x1008", shape: "2/3" },
   ];
+  const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
+  const [sizeMenuOpenUp, setSizeMenuOpenUp] = useState(false);
+  const sizeMenuRef = useRef<HTMLDivElement>(null);
+  const activeSize = imageSize;
+  const activeSizeOption =
+    generationSizes.find((option) => option.id === activeSize) ??
+    generationSizes[0]!;
+
+  function selectSize(value: ImageSizePreset) {
+    setImageSize(value);
+    if (value !== "21:9") {
+      setVideoTemplate("FULL_BLEED");
+    }
+    if (value.includes("x")) {
+      const [width, height] = value.split("x").map(Number);
+      if (width && height && width !== height) {
+        setAspectRatio(width > height ? "LANDSCAPE" : "PORTRAIT");
+      }
+    } else if (value === "9:16") {
+      setAspectRatio("PORTRAIT");
+    } else if (value === "16:9" || value === "3:2") {
+      setAspectRatio("LANDSCAPE");
+    }
+  }
+
+  function toggleSizeMenu() {
+    const nextOpen = !sizeMenuOpen;
+    if (nextOpen && sizeMenuRef.current) {
+      const rect = sizeMenuRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setSizeMenuOpenUp(spaceBelow < 360 && spaceAbove > spaceBelow);
+    }
+    setSizeMenuOpen(nextOpen);
+  }
+
+  useEffect(() => {
+    if (!sizeMenuOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (
+        sizeMenuRef.current &&
+        !sizeMenuRef.current.contains(event.target as Node)
+      ) {
+        setSizeMenuOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSizeMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [sizeMenuOpen]);
   return (
     <div className="grid gap-6">
       <section>
@@ -1174,42 +1826,106 @@ function VisualPanel({
       </section>
 
       <section>
-        <h3 className="text-sm font-black">生成比例</h3>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {ratios.map((ratio) => (
-            <button
-              key={ratio.id}
-              type="button"
-              onClick={() => setAspectRatio(ratio.id)}
-              className={`rounded-2xl border p-3 text-left transition ${
-                aspectRatio === ratio.id
-                  ? "border-[#16bec8] bg-cyan-50 shadow-[0_0_0_2px_rgb(22_190_200/8%)]"
-                  : "border-black/[0.07] bg-white hover:border-black/20"
+        <h3 className="text-sm font-black">生图尺寸</h3>
+        <div ref={sizeMenuRef} className="relative mt-3">
+          <button
+            type="button"
+            onClick={toggleSizeMenu}
+            className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition ${
+              sizeMenuOpen
+                ? "border-[#16bec8] bg-white shadow-[0_0_0_2px_rgb(22_190_200/8%)]"
+                : "border-black/[0.08] bg-[#f6f8f9] hover:border-black/20"
+            }`}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span
+                className="block w-14 shrink-0 rounded-md border-2 border-[#16bec8] bg-white"
+                style={{ aspectRatio: activeSizeOption.shape }}
+              />
+              <span className="min-w-0">
+                <strong className="block truncate text-sm">
+                  {activeSizeOption.label}
+                </strong>
+                <span className="mt-0.5 block truncate text-[11px] text-black/40">
+                  {activeSizeOption.detail}
+                </span>
+              </span>
+            </span>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 text-black/45 transition ${
+                sizeMenuOpen ? "rotate-180" : ""
               }`}
             >
-              <span
-                className={`mb-3 block rounded-md border-2 ${
-                  ratio.id === "LANDSCAPE"
-                    ? "aspect-video w-16"
-                    : "aspect-[9/16] h-16"
-                } ${
-                  aspectRatio === ratio.id
-                    ? "border-[#16bec8] bg-white"
-                    : "border-[#9aa4ae] bg-[#f1f4f5]"
-                }`}
-              />
-              <strong className="block text-sm">{ratio.label}</strong>
-              <span className="mt-1 block text-[11px] leading-4 text-black/40">
-                {ratio.detail}
-              </span>
-            </button>
-          ))}
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {sizeMenuOpen && (
+            <div
+              className={`absolute inset-x-0 z-30 max-h-80 overflow-y-auto rounded-xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_40px_rgb(0_0_0/14%)] ${
+                sizeMenuOpenUp ? "bottom-full mb-2" : "top-full mt-2"
+              }`}
+            >
+              {generationSizes.map((option) => {
+                const selected = activeSize === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      selectSize(option.id);
+                      setSizeMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
+                      selected ? "bg-cyan-50" : "hover:bg-[#f1f4f5]"
+                    }`}
+                  >
+                    <span
+                      className="block w-10 shrink-0 rounded border-2 border-[#16bec8]/70 bg-white"
+                      style={{ aspectRatio: option.shape }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <strong className="block text-sm">{option.label}</strong>
+                      <span className="mt-0.5 block text-[11px] text-black/40">
+                        {option.detail}
+                      </span>
+                    </span>
+                    {selected ? (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#159aa6"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
       {imageApiReady ? (
         <div className="rounded-2xl bg-emerald-50 p-4 text-xs font-bold leading-5 text-emerald-800">
-          图片 API 已配置。生成时会按所选比例为每个句子创建独立图片。
+          {videoTemplate === "KNOWLEDGE_BOARD"
+            ? "图片 API 已配置。生成时会按固定 21:9 为每个句子创建独立图片。"
+            : "图片 API 已配置。生成时会按所选比例为每个句子创建独立图片。"}
         </div>
       ) : (
         <button
@@ -1217,7 +1933,7 @@ function VisualPanel({
           onClick={onOpenSettings}
           className="rounded-2xl bg-amber-50 p-4 text-left text-xs font-bold leading-5 text-amber-800"
         >
-          提示词生图需要第三方图片 API。点击前往配置 →
+          提示词生图需要图片 API。点击前往配置 →
         </button>
       )}
     </div>
@@ -1245,6 +1961,8 @@ function CharacterPanel({
   const [previewUrl, setPreviewUrl] = useState("");
   const [deletingProfileId, setDeletingProfileId] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [deleteTarget, setDeleteTarget] =
+    useState<CharacterProfileSummary | null>(null);
   const uploadingNew = !selectedProfileId;
 
   useEffect(() => {
@@ -1257,8 +1975,13 @@ function CharacterPanel({
     return () => URL.revokeObjectURL(url);
   }, [referenceFile]);
 
-  async function deleteProfile(profile: CharacterProfileSummary) {
-    if (!window.confirm(`确定删除参考人物“${profile.name}”吗？`)) return;
+  function openDeleteProfile(profile: CharacterProfileSummary) {
+    setDeleteTarget(profile);
+  }
+
+  async function confirmDeleteProfile() {
+    if (!deleteTarget) return;
+    const profile = deleteTarget;
     setDeletingProfileId(profile.id);
     setDeleteError("");
     try {
@@ -1278,6 +2001,7 @@ function CharacterPanel({
       );
     } finally {
       setDeletingProfileId("");
+      setDeleteTarget(null);
     }
   }
 
@@ -1332,7 +2056,7 @@ function CharacterPanel({
                 <button
                   type="button"
                   disabled={deletingProfileId === profile.id}
-                  onClick={() => void deleteProfile(profile)}
+                  onClick={() => openDeleteProfile(profile)}
                   className="w-full border-t border-black/[0.05] px-2 py-2 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
                 >
                   {deletingProfileId === profile.id ? "删除中…" : "删除"}
@@ -1424,44 +2148,19 @@ function CharacterPanel({
           {deleteError}
         </p>
       )}
-    </div>
-  );
-}
-
-export function VoicePanel({
-  voiceStyle,
-  setVoiceStyle,
-}: {
-  voiceStyle: string;
-  setVoiceStyle: (value: string) => void;
-}) {
-  return (
-    <div>
-      <h2 className="font-black">旁白声音</h2>
-      <p className="mt-1 text-xs leading-5 text-black/40">
-        旁白会在分镜生成后逐镜创建，并明确标记为 AI 生成。
-      </p>
-      <div className="mt-4 grid gap-3">
-        {[
-          ["alloy", "清晰中性", "自然、稳定，适合知识讲解"],
-          ["nova", "明亮活力", "节奏轻快，适合故事内容"],
-          ["echo", "沉稳叙述", "声音厚实，适合商业主题"],
-        ].map(([id, label, description]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setVoiceStyle(id ?? "")}
-            className={`rounded-2xl border p-4 text-left ${
-              voiceStyle === id
-                ? "border-[#14bdc7] bg-cyan-50"
-                : "border-black/[0.06]"
-            }`}
-          >
-            <strong className="text-sm">◉ {label}</strong>
-            <p className="mt-1 text-xs text-black/40">{description}</p>
-          </button>
-        ))}
-      </div>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="删除参考人物"
+        description={
+          deleteTarget
+            ? `确定删除参考人物“${deleteTarget.name}”吗？删除后无法恢复。`
+            : ""
+        }
+        confirmText="确认删除"
+        busy={Boolean(deleteTarget && deletingProfileId === deleteTarget.id)}
+        onConfirm={() => void confirmDeleteProfile()}
+        onClose={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }
@@ -1473,39 +2172,330 @@ function MusicPanel({
   music: string;
   setMusic: (value: string) => void;
 }) {
+  const [libraryTracks, setLibraryTracks] = useState<
+    Array<{ id: string; title: string; fileName: string }>
+  >([]);
+  const [libraryStatus, setLibraryStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [libraryMenuOpen, setLibraryMenuOpen] = useState(false);
+  const libraryMenuRef = useRef<HTMLDivElement>(null);
+  const [previewTrack, setPreviewTrack] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [libraryRoot, setLibraryRoot] = useState("");
+  const [librarySettingsOpen, setLibrarySettingsOpen] = useState(false);
+  const [libraryRootDraft, setLibraryRootDraft] = useState("");
+  const [librarySettingsBusy, setLibrarySettingsBusy] = useState(false);
+  const [librarySettingsError, setLibrarySettingsError] = useState("");
+
+  const loadLibraryTracks = useCallback(async () => {
+    setLibraryStatus("loading");
+    try {
+      const response = await fetch("/api/music-library");
+      if (!response.ok) throw new Error("音乐库读取失败");
+      const data = (await response.json()) as {
+        root?: string;
+        tracks?: Array<{ id: string; title: string; fileName: string }>;
+      };
+      setLibraryRoot(data.root ?? "");
+      setLibraryTracks(data.tracks ?? []);
+      setLibraryStatus("ready");
+    } catch {
+      setLibraryStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLibraryTracks();
+  }, [loadLibraryTracks]);
+
+  async function saveMusicLibraryRoot() {
+    const root = libraryRootDraft.trim();
+    if (!root) return;
+    setLibrarySettingsBusy(true);
+    setLibrarySettingsError("");
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:4317/music-library/settings",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ root }),
+        },
+      );
+      const data = (await response.json()) as {
+        root?: string;
+        error?: string;
+      };
+      if (!response.ok || !data.root) {
+        throw new Error(data.error ?? "音乐库设置保存失败");
+      }
+      setLibraryRoot(data.root);
+      setLibrarySettingsOpen(false);
+      await loadLibraryTracks();
+    } catch (reason) {
+      setLibrarySettingsError(
+        reason instanceof Error ? reason.message : "音乐库设置保存失败",
+      );
+    } finally {
+      setLibrarySettingsBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!libraryMenuOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (
+        libraryMenuRef.current &&
+        !libraryMenuRef.current.contains(event.target as Node)
+      ) {
+        setLibraryMenuOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setLibraryMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [libraryMenuOpen]);
+
+  useEffect(() => {
+    if (!libraryMenuOpen) {
+      setPreviewTrack("");
+      setPreviewError("");
+    }
+  }, [libraryMenuOpen]);
+
+  const autoMatchActive =
+    music === "AUTO_MATCH" || music.startsWith("AUTO_MATCH:");
+  const selectedLibraryLabel = music.startsWith("AUTO_MATCH:")
+    ? (libraryTracks.find(
+        (track) => `AUTO_MATCH:${track.fileName}` === music,
+      )?.title ?? "自动选择（根据文案主题）")
+    : "自动选择（根据文案主题）";
+
   return (
-    <div>
-      <h2 className="font-black">
-        背景音乐
-      </h2>
+    <div className="grid gap-4">
+      <div>
+      <h2 className="font-black">背景音乐</h2>
       <p className="mt-1 text-xs leading-5 text-black/40">
         创建项目后可以上传已获授权的背景音乐，渲染时会自动压低音乐突出人声。
       </p>
       <div className="mt-4 grid gap-3">
-        {[
-          ["NONE", "暂不添加", "保持纯净旁白"],
-          [
-            "BUILTIN",
-            "使用自带《白鸽乌鸦相爱的戏码》",
-            "短于视频会自动循环到朗读结束",
-          ],
-          ["UPLOAD", "创建后上传", "支持本地授权音频文件"],
-        ].map(([id, label, description]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setMusic(id ?? "")}
-            className={`rounded-2xl border p-4 text-left ${
-              music === id
-                ? "border-[#14bdc7] bg-cyan-50"
-                : "border-black/[0.06]"
-            }`}
-          >
-            <strong className="text-sm">♫ {label}</strong>
-            <p className="mt-1 text-xs text-black/40">{description}</p>
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setMusic("NONE")}
+          className={`rounded-2xl border p-4 text-left ${
+            music === "NONE"
+              ? "border-[#14bdc7] bg-cyan-50"
+              : "border-black/[0.06]"
+          }`}
+        >
+          <strong className="text-sm">♫ 暂不添加</strong>
+          <p className="mt-1 text-xs text-black/40">保持纯净旁白</p>
+        </button>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setMusic("AUTO_MATCH")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setMusic("AUTO_MATCH");
+            }
+          }}
+          className={`rounded-2xl border p-4 text-left ${
+            autoMatchActive
+              ? "border-[#14bdc7] bg-cyan-50"
+              : "border-black/[0.06]"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <strong className="text-sm">♫ 自动匹配</strong>
+              <p className="mt-1 text-xs text-black/40">
+                根据文案主题从音乐库自动选曲，也可以手动指定一首
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setLibraryRootDraft(libraryRoot);
+                setLibrarySettingsError("");
+                setLibrarySettingsOpen(true);
+              }}
+              className="shrink-0 rounded-lg border border-black/10 bg-white px-2.5 py-1.5 text-[11px] font-black text-black/55 transition hover:bg-[#f7f9fa]"
+            >
+              设置
+            </button>
+          </div>
+          {autoMatchActive && (
+            <div
+              ref={libraryMenuRef}
+              className="mt-3"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={libraryMenuOpen}
+                onClick={() => setLibraryMenuOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-black/[0.08] bg-white px-3 py-3 text-left text-sm font-bold outline-none transition hover:border-black/20"
+              >
+                <span className="min-w-0 truncate">{selectedLibraryLabel}</span>
+                <span
+                  aria-hidden="true"
+                  className={`shrink-0 text-black/35 transition-transform ${
+                    libraryMenuOpen ? "rotate-180" : ""
+                  }`}
+                >
+                  ⌄
+                </span>
+              </button>
+              {libraryMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-label="音乐库"
+                  className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_45px_rgb(15_23_42/15%)]"
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={music === "AUTO_MATCH"}
+                    onClick={() => {
+                      setMusic("AUTO_MATCH");
+                      setLibraryMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-bold transition ${
+                      music === "AUTO_MATCH"
+                        ? "bg-cyan-50 text-cyan-900"
+                        : "hover:bg-[#f7f9fa]"
+                    }`}
+                  >
+                    自动选择（根据文案主题）
+                    {music === "AUTO_MATCH" && <span>✓</span>}
+                  </button>
+                  {libraryTracks.map((track) => {
+                    const selected = music === `AUTO_MATCH:${track.fileName}`;
+                    const previewing = previewTrack === track.fileName;
+                    return (
+                      <div
+                        key={track.id}
+                        className={`rounded-lg ${
+                          selected ? "bg-cyan-50" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 px-1">
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              setMusic(`AUTO_MATCH:${track.fileName}`);
+                              setLibraryMenuOpen(false);
+                            }}
+                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left text-sm font-bold transition hover:bg-[#f7f9fa]"
+                          >
+                            <span className="min-w-0 truncate">
+                              {track.title}
+                            </span>
+                            {selected && <span>✓</span>}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewTrack(previewing ? "" : track.fileName);
+                              setPreviewError("");
+                            }}
+                            className={`shrink-0 rounded-lg border px-2.5 py-2 text-[11px] font-black transition ${
+                              previewing
+                                ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+                                : "border-black/10 bg-white text-black/55 hover:bg-[#f7f9fa]"
+                            }`}
+                          >
+                            {previewing ? "收起" : "▶ 试听"}
+                          </button>
+                        </div>
+                        {previewing && (
+                          <audio
+                            autoPlay
+                            controls
+                            preload="auto"
+                            className="h-8 w-full px-1 pb-1"
+                            src={`/api/music-library/audio?file=${encodeURIComponent(track.fileName)}`}
+                            onError={() =>
+                              setPreviewError(`试听加载失败：${track.title}`)
+                            }
+                          >
+                            <track kind="captions" />
+                          </audio>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {previewError && (
+                <p className="mt-2 text-xs font-bold text-red-600">
+                  {previewError}
+                </p>
+              )}
+              {libraryStatus === "loading" && (
+                <p className="mt-2 text-xs text-black/40">正在读取音乐库…</p>
+              )}
+              {libraryStatus === "error" && (
+                <p className="mt-2 text-xs font-bold text-red-600">
+                  音乐库读取失败，请检查{libraryRoot ? ` ${libraryRoot} ` : "音乐库目录"}
+                  是否存在
+                </p>
+              )}
+              {libraryStatus === "ready" && libraryTracks.length === 0 && (
+                <p className="mt-2 text-xs font-bold text-amber-700">
+                  音乐库还没有音乐，自动匹配会先跳过配乐
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setMusic("UPLOAD")}
+          className={`rounded-2xl border p-4 text-left ${
+            music === "UPLOAD"
+              ? "border-[#14bdc7] bg-cyan-50"
+              : "border-black/[0.06]"
+          }`}
+        >
+          <strong className="text-sm">♫ 创建后上传</strong>
+          <p className="mt-1 text-xs text-black/40">支持本地授权音频文件</p>
+        </button>
       </div>
+      </div>
+      <AppDialog
+        open={librarySettingsOpen}
+        title="音乐库设置"
+        description="指定自动匹配和下拉框使用的音乐文件夹，保存后立即生效。"
+        confirmLabel="保存"
+        busy={librarySettingsBusy}
+        confirmDisabled={!libraryRootDraft.trim()}
+        input={{
+          label: "音乐库文件夹路径",
+          value: libraryRootDraft,
+          placeholder: "例如：E:\\codex\\素材库\\音乐库",
+          ...(librarySettingsError
+            ? { error: librarySettingsError }
+            : {}),
+          onChange: setLibraryRootDraft,
+        }}
+        onConfirm={() => void saveMusicLibraryRoot()}
+        onCancel={() => setLibrarySettingsOpen(false)}
+      />
     </div>
   );
 }

@@ -169,11 +169,7 @@ export async function ensureSoundEffectLibrary(
         throw error;
       }
       const objectKey = externalSoundEffectObjectKey(item);
-      const stored = await objectStore.put(
-        objectKey,
-        body,
-        item.contentType,
-      );
+      const stored = await objectStore.put(objectKey, body, item.contentType);
       const license =
         "user-provided; usage rights asserted by the local library owner";
       const asset = await prisma.asset.upsert({

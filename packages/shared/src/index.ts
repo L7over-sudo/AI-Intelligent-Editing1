@@ -1,5 +1,6 @@
 export const APP_NAME = "StickMotion";
 
+export * from "./audio-mix";
 export * from "./http-byte-range";
 export * from "./character-reference";
 export * from "./jianying-draft-job";
@@ -12,4 +13,8 @@ export * from "./storyboard";
 export * from "./voice-job";
 export * from "./voice-clone";
 export * from "./prompt-template";
+export * from "./cover-template";
 export * from "./video-template";
+export * from "./dialogue";
+export * from "./search-plan";
+export * from "./continuous-voice";

@@ -29,17 +29,22 @@ export interface FfmpegRenderPlan {
   scenes: RenderSceneInput[];
   outputPath: string;
   subtitlePath?: string;
+  narrationPath?: string;
   backgroundMusicPath?: string;
+  narrationVolume?: number;
+  backgroundMusicVolume?: number;
   soundEffects?: SoundEffectInput[];
   width: number;
   height: number;
   fps?: number;
   watermark?: string;
   fontFile?: string;
+  filterScriptPath?: string;
 }
 
 export interface BuiltFfmpegCommand {
   args: string[];
+  filterScript: string;
   durationSeconds: number;
 }
 
@@ -103,6 +108,14 @@ export function buildFfmpegRenderCommand(
   }
 
   const fps = plan.fps ?? 30;
+  const narrationVolume = Math.min(
+    2,
+    Math.max(0, plan.narrationVolume ?? 1),
+  );
+  const backgroundMusicVolume = Math.min(
+    1,
+    Math.max(0, plan.backgroundMusicVolume ?? 0.1),
+  );
   const args = ["-y", "-hide_banner", "-progress", "pipe:2", "-nostats"];
   const filters: string[] = [];
   const voiceInputs: Array<{ inputIndex: number; sceneIndex: number }> = [];
@@ -120,8 +133,13 @@ export function buildFfmpegRenderCommand(
   }
 
   let nextInputIndex = plan.scenes.length;
+  let narrationInputIndex: number | undefined;
+  if (plan.narrationPath) {
+    args.push("-i", plan.narrationPath);
+    narrationInputIndex = nextInputIndex++;
+  }
   for (const [sceneIndex, scene] of plan.scenes.entries()) {
-    if (scene.voicePath) {
+    if (scene.voicePath && narrationInputIndex === undefined) {
       args.push("-i", scene.voicePath);
       voiceInputs.push({ inputIndex: nextInputIndex, sceneIndex });
       nextInputIndex += 1;
@@ -182,11 +200,18 @@ export function buildFfmpegRenderCommand(
   const durationSeconds = Math.max(elapsed, cursor);
 
   const audioLabels: string[] = [];
+  if (narrationInputIndex !== undefined) {
+    filters.push(
+      `[${narrationInputIndex}:a]aresample=48000,atrim=duration=${durationSeconds.toFixed(3)},volume=${narrationVolume.toFixed(4)}[voice]`,
+    );
+    audioLabels.push("voice");
+  }
   for (const voice of voiceInputs) {
     const delay = Math.round((sceneStarts[voice.sceneIndex] ?? 0) * 1_000);
     const label = `voice${voice.sceneIndex}`;
+    const duration = plan.scenes[voice.sceneIndex]!.duration;
     filters.push(
-      `[${voice.inputIndex}:a]aresample=48000,adelay=${delay}|${delay},volume=1[${label}]`,
+      `[${voice.inputIndex}:a]aresample=48000,atrim=duration=${duration.toFixed(3)},adelay=${delay}|${delay},volume=${narrationVolume.toFixed(4)}[${label}]`,
     );
     audioLabels.push(label);
   }
@@ -214,16 +239,19 @@ export function buildFfmpegRenderCommand(
   let audioLabel = narrationLabel;
   if (backgroundMusicIndex !== undefined) {
     filters.push(
-      `[${backgroundMusicIndex}:a]aresample=48000,volume=0.22[bgm]`,
-      `[bgm][${narrationLabel}]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=350[ducked]`,
-      `[${narrationLabel}][ducked]amix=inputs=2:normalize=0:duration=first[aout]`,
+      `[${backgroundMusicIndex}:a]aresample=48000,volume=${backgroundMusicVolume.toFixed(4)}[bgm]`,
+      `[${narrationLabel}]asplit=2[narrationSidechain][narrationMix]`,
+      `[bgm][narrationSidechain]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=350[ducked]`,
+      `[narrationMix][ducked]amix=inputs=2:normalize=0:duration=first[aout]`,
     );
     audioLabel = "aout";
   }
 
+  const filterScript = filters.join(";");
   args.push(
-    "-filter_complex",
-    filters.join(";"),
+    ...(plan.filterScriptPath
+      ? ["-filter_complex_script", plan.filterScriptPath]
+      : ["-filter_complex", filterScript]),
     "-map",
     `[${videoLabel}]`,
     "-map",
@@ -251,5 +279,5 @@ export function buildFfmpegRenderCommand(
     plan.outputPath,
   );
 
-  return { args, durationSeconds };
+  return { args, filterScript, durationSeconds };
 }

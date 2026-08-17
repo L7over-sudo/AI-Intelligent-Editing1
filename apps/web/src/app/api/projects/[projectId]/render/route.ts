@@ -46,7 +46,6 @@ export async function POST(
           select: {
             id: true,
             revision: true,
-            isTextOpening: true,
             sceneAssets: {
               where: { role: "VISUAL" },
               select: { asset: { select: { metadata: true } } },
@@ -58,12 +57,9 @@ export async function POST(
     });
     if (!project) throw new Error("PROJECT_NOT_FOUND");
     if (project.scenes.length === 0) throw new Error("RENDER_SCENES_REQUIRED");
-    const visualScenes = project.scenes.filter(
-      (scene) => !scene.isTextOpening,
-    );
     if (
       project.visualMode === "AI_IMAGE" &&
-      visualScenes.some(
+      project.scenes.some(
         (scene) =>
           !scene.sceneAssets.some((link) =>
             assetMatchesRevision(
@@ -100,7 +96,10 @@ export async function POST(
       where: { id: project.id },
       data: { status: "RENDERING" },
     });
-    return NextResponse.json({ jobId: job.id, status: "QUEUED" }, { status: 202 });
+    return NextResponse.json(
+      { jobId: job.id, status: "QUEUED" },
+      { status: 202 },
+    );
   } catch (error) {
     return apiError(error);
   }

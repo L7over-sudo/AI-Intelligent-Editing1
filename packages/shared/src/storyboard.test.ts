@@ -1,13 +1,12 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
+  applyAnimationPreference,
   applyTransitionPreference,
   applyNarrationTiming,
   createStoryboardPrompt,
   estimateNarrationDuration,
-  formatTextOpening,
   getStoryboardDuration,
-  splitFirstSentence,
   storyboardSchema,
 } from "./storyboard";
 
@@ -22,6 +21,78 @@ describe("scene transition preference", () => {
     expect(
       applyTransitionPreference({ type: "PUSH", duration: 0.6 }, false),
     ).toEqual({ type: "CUT", duration: 0 });
+  });
+
+  it("adds a transition before every non-final scene", () => {
+    expect(
+      applyTransitionPreference(
+        { type: "CUT", duration: 0 },
+        true,
+        0,
+        3,
+      ),
+    ).toEqual({ type: "FADE", duration: 0.35 });
+    expect(
+      applyTransitionPreference(
+        { type: "CUT", duration: 0 },
+        true,
+        2,
+        3,
+      ),
+    ).toEqual({ type: "CUT", duration: 0 });
+  });
+
+  it("replaces push and zoom transitions with subtle fades or dissolves", () => {
+    expect(
+      applyTransitionPreference(
+        { type: "PUSH", duration: 0.45 },
+        true,
+        1,
+        8,
+      ).type,
+    ).not.toBe("PUSH");
+    expect(
+      applyTransitionPreference(
+        { type: "PUSH", duration: 0.45 },
+        true,
+        5,
+        8,
+      ).type,
+    ).not.toBe("PUSH");
+    expect(
+      applyTransitionPreference(
+        { type: "ZOOM", duration: 0.45 },
+        true,
+        2,
+        8,
+      ).type,
+    ).not.toBe("ZOOM");
+  });
+});
+
+describe("scene animation preference", () => {
+  it("replaces zoom animations with a fixed-size fade", () => {
+    expect(
+      applyAnimationPreference(
+        { type: "ZOOM", direction: "IN", intensity: 0.8 },
+        2,
+      ),
+    ).toEqual({ type: "FADE", direction: "IN", intensity: 0.35 });
+  });
+
+  it("replaces most left-slide animations with a subtle fade", () => {
+    expect(
+      applyAnimationPreference(
+        { type: "SLIDE", direction: "LEFT", intensity: 0.8 },
+        2,
+      ),
+    ).toEqual({ type: "FADE", direction: "IN", intensity: 0.35 });
+    expect(
+      applyAnimationPreference(
+        { type: "SLIDE", direction: "LEFT", intensity: 0.8 },
+        5,
+      ),
+    ).toEqual({ type: "SLIDE", direction: "LEFT", intensity: 0.8 });
   });
 });
 
@@ -75,69 +146,70 @@ describe("narration driven timing", () => {
   });
 });
 
-describe("first sentence split", () => {
-  it("splits the opening sentence from the remaining copy", () => {
-    expect(
-      splitFirstSentence("第一句开场。第二句正文。第三句收尾。"),
-    ).toEqual({
-      firstSentence: "第一句开场。",
-      remainingText: "第二句正文。第三句收尾。",
-    });
-  });
-
-  it("returns the whole text when there is only one sentence", () => {
-    expect(splitFirstSentence("只有一句文案")).toEqual({
-      firstSentence: "只有一句文案",
-      remainingText: "",
-    });
-  });
-});
-
-describe("text opening scene", () => {
-  it("accepts a text-only opening scene without visual content", () => {
-    const opening = {
-      ...scene,
-      narration: "第一句开场。",
-      visualPrompt: "",
-      templateElements: [],
-      isTextOpening: true,
-    };
+describe("storyboard scene validation", () => {
+  it("does not discard valid scenes when model cover copy needs normalization", () => {
     expect(() =>
       storyboardSchema.parse({
-        title: "开场",
-        summary: "开场摘要",
-        scenes: [opening],
+        title: "Cover normalization",
+        summary: "The scenes remain usable even when cover copy is too long.",
+        coverTitle: "这个模型标题明显超过四个字",
+        coverSubtitle: "这个模型副标题也明显超过十二个字需要稍后自动规范",
+        scenes: [scene],
       }),
     ).not.toThrow();
+  });
+
+  it("rejects the removed text-opening flag", () => {
+    expect(() =>
+      storyboardSchema.parse({
+        title: "Opening",
+        summary: "Opening summary",
+        scenes: [{ ...scene, isTextOpening: true }],
+      }),
+    ).toThrow();
   });
 
   it("rejects visual scenes that are missing a prompt or elements", () => {
     expect(() =>
       storyboardSchema.parse({
-        title: "开场",
-        summary: "开场摘要",
+        title: "Opening",
+        summary: "Opening summary",
         scenes: [{ ...scene, visualPrompt: "", templateElements: [] }],
       }),
     ).toThrow();
   });
 });
 
-describe("text opening formatting", () => {
-  it("strips punctuation and keeps at most two lines", () => {
-    const formatted = formatTextOpening(
-      "很多人一遇到问题，第一反应不是去解决问题，而是先解决自己。",
-    );
-    expect(formatted.singleLine).not.toContain("，");
-    expect(formatted.singleLine).not.toContain("。");
-    expect(formatted.lines.length).toBeLessThanOrEqual(2);
-  });
-
-  it("keeps a short opening on one line", () => {
-    expect(formatTextOpening("开工。").displayText).toBe("开工");
-  });
-});
-
 describe("storyboard prompt", () => {
+  it("uses an ultrawide composition instruction for knowledge-board prompts", () => {
+    const prompt = createStoryboardPrompt({
+      sourceText: "???????????",
+      sourceKind: "TOPIC",
+      aspectRatio: "LANDSCAPE",
+      videoTemplate: "KNOWLEDGE_BOARD",
+      language: "zh-CN",
+      accentColor: "#FF5C35",
+      imagePrompt: "???????????????????",
+    });
+
+    expect(prompt).toContain("21:9 ultrawide horizontal");
+  });
+
+  it("keeps knowledge-board prompts at 21:9 even for legacy portrait input", () => {
+    const prompt = createStoryboardPrompt({
+      sourceText: "知识板应使用固定比例",
+      sourceKind: "TOPIC",
+      aspectRatio: "PORTRAIT",
+      videoTemplate: "KNOWLEDGE_BOARD",
+      language: "zh-CN",
+      accentColor: "#FF5C35",
+      imagePrompt: "黑白极简插画",
+    });
+
+    expect(prompt).toContain("21:9 ultrawide horizontal");
+    expect(prompt).not.toContain("9:16 vertical");
+  });
+
   it("asks for natural copy-driven length without a target duration", () => {
     const prompt = createStoryboardPrompt({
       sourceText: "为什么番茄钟有效？",
@@ -148,12 +220,12 @@ describe("storyboard prompt", () => {
       imagePrompt: "黑白极简火柴人插画，统一角色，干净背景",
     });
     expect(prompt).toContain("natural video length");
-    expect(prompt).toContain("exceeds about 32 CJK characters");
+    expect(prompt).toContain("exceeds about 28 CJK characters");
     expect(prompt).toContain("semantic clause boundaries");
     expect(prompt).toContain(
       "Subtitle text must preserve narration punctuation",
     );
-    expect(prompt).toContain("roughly 12 to 32 CJK characters per scene");
+    expect(prompt).toContain("roughly 12 to 28 CJK characters per scene");
     expect(prompt).toContain("User image prompt");
     expect(prompt).not.toContain("Target duration");
     expect(prompt).toContain("为什么番茄钟有效？");

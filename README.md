@@ -111,4 +111,4 @@ pnpm build
 
 ## 本机声音克隆
 
-声音克隆使用本机 VoxCPM2，安装、启动和页面使用方法见 [`docs/VOXCPM.md`](docs/VOXCPM.md)。
+声音克隆使用本机 IndexTTS2，安装、启动和页面使用方法见 [`docs/INDEXTTS.md`](docs/INDEXTTS.md)。

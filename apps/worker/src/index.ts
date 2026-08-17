@@ -25,6 +25,10 @@ import { createSceneImageProcessor } from "./processors/scene-image";
 import { createScriptProcessor } from "./processors/script";
 import { createVoiceProcessor } from "./processors/voice";
 import { startSettingsServer } from "./settings-server";
+import {
+  mediaJobTypes,
+  parseWorkerRole,
+} from "./worker-role";
 
 const workspaceEnvPath = path.resolve(process.cwd(), "../..", ".env");
 
@@ -33,7 +37,21 @@ function reloadRuntimeEnvironment(): void {
 }
 
 reloadRuntimeEnvironment();
-startSettingsServer();
+
+const workerRole = parseWorkerRole(process.env.WORKER_ROLE);
+const roleTypeFilter:
+  | { type: "RENDER" }
+  | { type: { in: Array<(typeof mediaJobTypes)[number]> } }
+  | undefined =
+  workerRole === "render"
+    ? { type: "RENDER" }
+    : workerRole === "media"
+      ? { type: { in: [...mediaJobTypes] } }
+      : undefined;
+
+if (workerRole !== "media") {
+  startSettingsServer();
+}
 
 const storedSceneImageInputSchema = z
   .object({ sceneIds: z.array(z.string().min(1)).min(1).max(500) })
@@ -73,6 +91,7 @@ async function claimNextJob() {
     where: {
       status: { in: ["QUEUED", "RETRYING"] },
       queuedAt: { lte: new Date() },
+      ...(roleTypeFilter ?? {}),
     },
     orderBy: [{ queuedAt: "asc" }, { createdAt: "asc" }],
   });
@@ -94,6 +113,9 @@ async function retryOrFail(jobId: string, error: unknown): Promise<void> {
   const current = await prisma.generationJob.findUniqueOrThrow({
     where: { id: jobId },
   });
+  if (current.status === "CANCELED" || current.status === "CANCEL_REQUESTED") {
+    return;
+  }
   const canRetry = current.attempt < current.maxAttempts;
   const message = cleanError(error);
   const retryAt = new Date(
@@ -244,7 +266,9 @@ async function start(): Promise<void> {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-  console.info("[worker] local SQLite worker is ready");
+  console.info(
+    `[worker] local SQLite worker is ready (role=${workerRole || "all"})`,
+  );
   while (!closing) {
     const job = await claimNextJob();
     if (job) await processJob(job);

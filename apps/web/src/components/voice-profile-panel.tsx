@@ -2,16 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-export type VoiceCloneLanguage = "zh" | "en" | "ja" | "ko" | "yue";
+import { AppDialog } from "./app-dialog";
+import { ConfirmDialog } from "./confirm-dialog";
+import {
+  VoiceProfileDropdown,
+  type VoiceProfileSummary,
+} from "./voice-profile-dropdown";
 
-export interface VoiceProfileSummary {
-  id: string;
-  name: string;
-  assetId: string;
-  fileName: string;
-  createdAt: string;
-  available?: boolean;
-}
+export type { VoiceProfileSummary } from "./voice-profile-dropdown";
 
 export function VoiceProfilePanel({
   voiceStyle,
@@ -23,15 +21,12 @@ export function VoiceProfilePanel({
   setProfileName,
   referenceFile,
   setReferenceFile,
-  promptText,
-  setPromptText,
-  promptLanguage,
-  setPromptLanguage,
   serviceUrl,
   setServiceUrl,
   consentConfirmed,
   setConsentConfirmed,
   onProfileSaved,
+  onProfileRenamed,
   onProfileDeleted,
 }: {
   voiceStyle: string;
@@ -43,26 +38,36 @@ export function VoiceProfilePanel({
   setProfileName: (value: string) => void;
   referenceFile: File | undefined;
   setReferenceFile: (file: File | undefined) => void;
-  promptText: string;
-  setPromptText: (value: string) => void;
-  promptLanguage: VoiceCloneLanguage;
-  setPromptLanguage: (value: VoiceCloneLanguage) => void;
   serviceUrl: string;
   setServiceUrl: (value: string) => void;
   consentConfirmed: boolean;
   setConsentConfirmed: (value: boolean) => void;
   onProfileSaved: (profile: VoiceProfileSummary) => void;
+  onProfileRenamed: (profile: VoiceProfileSummary) => void;
   onProfileDeleted: (profileId: string) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [duration, setDuration] = useState<number>();
   const [deletingProfileId, setDeletingProfileId] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [profilePendingDelete, setProfilePendingDelete] =
+    useState<VoiceProfileSummary | null>(null);
+  const [profilePendingRename, setProfilePendingRename] =
+    useState<VoiceProfileSummary | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renameError, setRenameError] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveHint, setSaveHint] = useState("");
-  const voiceEnabled = voiceStyle === "voxcpm2";
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const voiceEnabled = voiceStyle === "indextts2";
   const uploadingNew = voiceEnabled && !selectedProfileId;
+  const builtinProfiles = profiles.filter((profile) => profile.builtin);
+  const customProfiles = profiles.filter((profile) => !profile.builtin);
+  const selectedCustomProfile = customProfiles.find(
+    (profile) => profile.id === selectedProfileId,
+  );
 
   useEffect(() => {
     if (!referenceFile) {
@@ -76,18 +81,17 @@ export function VoiceProfilePanel({
   }, [referenceFile]);
 
   const selectProfile = (profileId: string) => {
-    setVoiceStyle("voxcpm2");
+    setVoiceStyle("indextts2");
     setSelectedProfileId(profileId);
     setReferenceFile(undefined);
     setConsentConfirmed(false);
   };
 
-  async function deleteProfile(profile: VoiceProfileSummary) {
-    if (!window.confirm(`确定删除克隆音色“${profile.name}”吗？`)) return;
-    setDeletingProfileId(profile.id);
+  async function deleteProfile(profileId: string) {
+    setDeletingProfileId(profileId);
     setDeleteError("");
     try {
-      const response = await fetch(`/api/voice-profiles/${profile.id}`, {
+      const response = await fetch(`/api/voice-profiles/${profileId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -96,13 +100,47 @@ export function VoiceProfilePanel({
         };
         throw new Error(data.error ?? "克隆音色删除失败");
       }
-      onProfileDeleted(profile.id);
+      onProfileDeleted(profileId);
     } catch (error) {
       setDeleteError(
         error instanceof Error ? error.message : "克隆音色删除失败",
       );
     } finally {
       setDeletingProfileId("");
+    }
+  }
+
+  async function renameProfile() {
+    const profile = profilePendingRename;
+    const name = renameName.trim();
+    if (!profile || !name) {
+      setRenameError("请输入音色名称");
+      return;
+    }
+    setRenaming(true);
+    setRenameError("");
+    try {
+      const response = await fetch(`/api/voice-profiles/${profile.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        profile?: VoiceProfileSummary;
+        error?: string;
+      };
+      if (!response.ok || !data.profile) {
+        throw new Error(data.error ?? "音色重命名失败");
+      }
+      onProfileRenamed(data.profile);
+      setProfilePendingRename(null);
+      setRenameName("");
+    } catch (error) {
+      setRenameError(
+        error instanceof Error ? error.message : "音色重命名失败",
+      );
+    } finally {
+      setRenaming(false);
     }
   }
 
@@ -125,8 +163,6 @@ export function VoiceProfilePanel({
           fileName: referenceFile.name,
           contentType,
           byteSize: referenceFile.size,
-          promptText: promptText.trim(),
-          promptLanguage,
           serviceUrl,
           consentConfirmed,
         }),
@@ -154,11 +190,11 @@ export function VoiceProfilePanel({
       }
 
       onProfileSaved(setupData.profile);
-      setVoiceStyle("voxcpm2");
+      setVoiceStyle("indextts2");
       setSelectedProfileId(setupData.profile.id);
       setReferenceFile(undefined);
       setConsentConfirmed(false);
-      setSaveHint("声音已保存，可以试听并在后续项目中直接使用");
+      setSaveHint("声音已保存，创建项目后即可在配音板块直接使用");
     } catch (error) {
       if (createdProfileId) {
         await fetch(`/api/voice-profiles/${createdProfileId}`, {
@@ -175,97 +211,50 @@ export function VoiceProfilePanel({
     <div>
       <h2 className="font-black">角色声音</h2>
       <p className="mt-1 text-xs leading-5 text-black/45">
-        已保存的克隆声音可以在以后的视频中直接调用，不需要重复上传。
+        上传一段清晰人声作为参考，IndexTTS2 会用它在配音板块朗读全部分镜。
       </p>
 
-      {profiles.length > 0 && (
-        <section className="mt-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black">已保存声音</h3>
-            <span className="text-xs text-black/35">{profiles.length} 个</span>
-          </div>
-          <div className="mt-2 grid gap-2">
-            {profiles.map((profile) => (
-              <div
-                key={profile.id}
-                className={`overflow-hidden rounded-xl border ${
-                  voiceEnabled && selectedProfileId === profile.id
-                    ? "border-cyan-400 bg-cyan-50"
-                    : "border-black/[0.07] bg-white"
-                }`}
-              >
-                <button
-                  type="button"
-                  disabled={profile.available === false}
-                  onClick={() => selectProfile(profile.id)}
-                  className="flex w-full items-center gap-3 p-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#11151b] text-white">
-                    ♪
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block truncate text-sm">
-                      {profile.name}
-                    </strong>
-                    <span className="block truncate text-xs text-black/40">
-                      {profile.fileName}
-                    </span>
-                  </span>
-                  <span className="text-xs font-bold text-cyan-700">
-                    {profile.available === false
-                      ? "原文件缺失"
-                      : voiceEnabled && selectedProfileId === profile.id
-                        ? "使用中"
-                        : "选择"}
-                  </span>
-                </button>
-                <div className="border-t border-black/[0.05] px-3 py-2">
-                  {profile.available === false ? (
-                    <div className="rounded-lg bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800">
-                      早期项目清理时原音频被误删，无法试听。请重新上传原始声音文件。
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVoiceStyle("voxcpm2");
-                          setSelectedProfileId("");
-                          setProfileName(profile.name);
-                        }}
-                        className="mt-2 block w-full rounded-lg bg-white px-3 py-2 text-center text-amber-900"
-                      >
-                        重新上传声音
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="mb-1 text-[11px] font-bold text-black/40">
-                        试听声音
-                      </p>
-                      <audio
-                        controls
-                        preload="none"
-                        className="h-9 w-full"
-                        src={`/api/voice-profiles/${profile.id}/audio`}
-                        aria-label={`试听 ${profile.name}`}
-                      >
-                        <track kind="captions" />
-                      </audio>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    disabled={deletingProfileId === profile.id}
-                    onClick={() => void deleteProfile(profile)}
-                    className="mt-2 w-full rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100 disabled:opacity-40"
-                  >
-                    {deletingProfileId === profile.id
-                      ? "删除中…"
-                      : "删除克隆音色"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+      <VoiceProfileDropdown
+        title="内置音色"
+        hint="官方示例音色，无需上传，展开后可直接试听选择。"
+        profiles={builtinProfiles}
+        selectedProfileId={selectedProfileId}
+        placeholder="选择内置音色"
+        onSelect={selectProfile}
+      />
+
+      <VoiceProfileDropdown
+        title="我的音色"
+        hint="克隆或上传的声音，选中后可重命名或删除。"
+        profiles={customProfiles}
+        selectedProfileId={selectedProfileId}
+        placeholder="选择我的音色"
+        onSelect={selectProfile}
+      />
+      {selectedCustomProfile && (
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setProfilePendingRename(selectedCustomProfile);
+              setRenameName(selectedCustomProfile.name);
+              setRenameError("");
+            }}
+            className="flex-1 rounded-lg bg-white px-3 py-2 text-xs font-bold text-black/70 ring-1 ring-black/10 hover:bg-black/[0.03]"
+          >
+            重命名
+          </button>
+          <button
+            type="button"
+            disabled={deletingProfileId === selectedCustomProfile.id}
+            onClick={() => setProfilePendingDelete(selectedCustomProfile)}
+            className="flex-1 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100 disabled:opacity-40"
+          >
+            {deletingProfileId === selectedCustomProfile.id
+              ? "删除中…"
+              : "删除音色"}
+          </button>
+        </div>
       )}
 
       {deleteError && (
@@ -278,7 +267,7 @@ export function VoiceProfilePanel({
         <button
           type="button"
           onClick={() => {
-            setVoiceStyle("voxcpm2");
+            setVoiceStyle("indextts2");
             setSelectedProfileId("");
           }}
           className={`rounded-lg px-3 py-2 text-xs font-black ${
@@ -321,10 +310,10 @@ export function VoiceProfilePanel({
               <strong className="block text-sm">
                 {referenceFile
                   ? referenceFile.name
-                  : "点击上传约 1 分钟清晰人声"}
+                  : "点击上传约 10 秒至 1 分钟清晰人声"}
               </strong>
               <span className="mt-1 block font-normal text-black/35">
-                WAV、MP3、M4A 或 FLAC，3 秒至 10 分钟，最大 200MB
+                WAV、MP3、M4A 或 FLAC，最大 200MB
               </span>
               <input
                 type="file"
@@ -363,7 +352,7 @@ export function VoiceProfilePanel({
                 >
                   音频时长：{formatDuration(duration)}
                   {duration < 3 || duration > 600
-                    ? "（需要 3 秒至 10 分钟）"
+                    ? "（建议 3 秒至 10 分钟）"
                     : ""}
                 </p>
               )}
@@ -371,50 +360,36 @@ export function VoiceProfilePanel({
           )}
 
           <div className="rounded-xl bg-cyan-50 p-3 text-xs leading-5 text-cyan-900">
-            创建项目时会把这段音频保存为角色声音。以后只需选择角色，不再重复上传。
+            保存后，创建项目时选择这个音色，配音板块就会用 IndexTTS2
+            在本机合成全部旁白。
           </div>
 
-          <details className="rounded-xl border border-black/[0.06] p-3">
-            <summary className="cursor-pointer text-xs font-bold">
-              高级设置（通常不用修改）
-            </summary>
-            <div className="mt-3 grid gap-3">
+          <div className="rounded-xl border border-black/[0.06] p-3">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((current) => !current)}
+              className="cursor-pointer text-xs font-bold"
+            >
+              {advancedOpen ? "收起" : "展开"}高级设置（通常不用修改）
+            </button>
+            {advancedOpen && (
+              <div className="mt-3 grid gap-3">
               <label className="grid gap-2 text-xs font-bold">
-                参考音频原文（可选）
-                <textarea
-                  value={promptText}
-                  onChange={(event) => setPromptText(event.target.value)}
-                  maxLength={500}
-                  placeholder="留空时自动识别"
-                  className="min-h-20 rounded-xl bg-[#f1f4f5] p-3 text-sm font-normal outline-none"
-                />
-              </label>
-              <label className="grid gap-2 text-xs font-bold">
-                参考音频语言
-                <select
-                  value={promptLanguage}
-                  onChange={(event) =>
-                    setPromptLanguage(event.target.value as VoiceCloneLanguage)
-                  }
-                  className="rounded-xl bg-[#f1f4f5] p-3 text-sm"
-                >
-                  <option value="zh">中文</option>
-                  <option value="yue">粤语</option>
-                  <option value="en">英语</option>
-                  <option value="ja">日语</option>
-                  <option value="ko">韩语</option>
-                </select>
-              </label>
-              <label className="grid gap-2 text-xs font-bold">
-                VoxCPM2 本地服务
+                IndexTTS2 本地服务
                 <input
                   value={serviceUrl}
                   onChange={(event) => setServiceUrl(event.target.value)}
+                  placeholder="http://127.0.0.1:7851"
                   className="rounded-xl bg-[#f1f4f5] p-3 font-mono text-xs"
                 />
               </label>
-            </div>
-          </details>
+              <p className="text-[11px] leading-4 text-black/40">
+                服务未启动时，先运行 D:\iwen-codex\IndexTTS2\start-service.ps1
+                再保存声音。
+              </p>
+              </div>
+            )}
+          </div>
 
           <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
             <input
@@ -452,6 +427,50 @@ export function VoiceProfilePanel({
           {saveHint}
         </p>
       )}
+
+      <ConfirmDialog
+        open={profilePendingDelete !== null}
+        title="删除克隆音色"
+        description={
+          profilePendingDelete
+            ? `确定删除克隆音色“${profilePendingDelete.name}”吗？删除后需要重新上传参考声音。`
+            : ""
+        }
+        confirmText="确认删除"
+        busy={deletingProfileId !== ""}
+        onConfirm={() => {
+          if (profilePendingDelete) {
+            void deleteProfile(profilePendingDelete.id);
+          }
+          setProfilePendingDelete(null);
+        }}
+        onClose={() => setProfilePendingDelete(null)}
+      />
+
+      <AppDialog
+        open={profilePendingRename !== null}
+        title="重命名音色"
+        description={`修改“${profilePendingRename?.name ?? ""}”的名称`}
+        confirmLabel="保存名称"
+        busy={renaming}
+        confirmDisabled={!renameName.trim()}
+        input={{
+          label: "音色名称",
+          value: renameName,
+          maxLength: 40,
+          placeholder: "例如：我的讲解声",
+          error: renameError,
+          onChange: (value) => {
+            setRenameName(value);
+            setRenameError("");
+          },
+        }}
+        onConfirm={() => void renameProfile()}
+        onCancel={() => {
+          setProfilePendingRename(null);
+          setRenameError("");
+        }}
+      />
 
       {!uploadingNew && voiceEnabled && (
         <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">

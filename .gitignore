@@ -16,3 +16,5 @@ storage/
 work/
 scripts/__pycache__/
 __pycache__/
+# Local runtime (FFmpeg + headless browser)
+FFmpeg+Remotion/

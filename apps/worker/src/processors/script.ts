@@ -1,15 +1,11 @@
-import type { LocalJob } from "@stickmotion/queue";
+﻿import type { LocalJob } from "@stickmotion/queue";
 
 import { getPrisma } from "@stickmotion/db";
 import {
-  estimateNarrationDuration,
   getStoryboardDuration,
   scriptGenerationInputSchema,
-  splitFirstSentence,
-  storyboardSchema,
+  subtitleStyleSchema,
   type ScriptGenerationInput,
-  type Storyboard,
-  type StoryboardScene,
 } from "@stickmotion/shared";
 
 import { LocalStoryboardProvider } from "../services/local-storyboard-provider";
@@ -20,6 +16,13 @@ function cleanError(error: unknown): string {
   return error instanceof Error
     ? error.message.slice(0, 2_000)
     : "Unknown storyboard generation error";
+}
+
+export function buildReadyProjectUpdate(duration: number) {
+  return {
+    targetDuration: duration,
+    status: "READY" as const,
+  };
 }
 
 export function createScriptProcessor(
@@ -52,78 +55,32 @@ export function createScriptProcessor(
       }
 
       await localJob.updateProgress(15);
+      const videoTemplate = subtitleStyleSchema.parse(
+        project.subtitleStyle,
+      ).videoTemplate;
       const request = {
         sourceKind: project.sourceKind as "TOPIC" | "FULL_TEXT",
         aspectRatio: project.aspectRatio,
         language: project.language,
         accentColor: project.accentColor,
         imagePrompt: project.imagePrompt,
+        videoTemplate,
       };
-      let storyboardSource: Storyboard;
-      if (project.useTextOpeningTemplate) {
-        const { firstSentence, remainingText } = splitFirstSentence(
-          project.sourceText,
-        );
-        if (!firstSentence) throw new Error("SOURCE_TEXT_EMPTY");
-
-        const generated = remainingText
-          ? await provider.generate({
-              sourceText: remainingText,
-              ...request,
-            })
-          : {
-              title: Array.from(firstSentence).slice(0, 36).join(""),
-              summary: Array.from(firstSentence).slice(0, 160).join(""),
-              scenes: [] as StoryboardScene[],
-            };
-
-        const openingScene: StoryboardScene = {
-          narration: firstSentence,
-          subtitle: firstSentence,
-          estimatedDuration: Math.max(
-            2.5,
-            Math.round(estimateNarrationDuration(firstSentence) * 10) / 10,
-          ),
-          visualPrompt: "",
-          templateElements: [],
-          animation: { type: "NONE", direction: "NONE", intensity: 0 },
-          transition: { type: "CUT", duration: 0 },
-          soundEffects: [{ tag: "water", offsetRatio: 0, gainDb: -4 }],
-          isTextOpening: true,
-        };
-        storyboardSource = storyboardSchema.parse({
-          title: generated.title || "未命名视频",
-          summary: generated.summary || firstSentence,
-          scenes: [openingScene, ...generated.scenes],
-        });
-      } else {
-        storyboardSource = await provider.generate({
-          sourceText: project.sourceText,
-          ...request,
-        });
-      }
-      const firstGeneratedIndex = storyboardSource.scenes.findIndex(
-        (scene) => !scene.isTextOpening,
-      );
-      const openingIndex = storyboardSource.scenes.findIndex(
-        (scene) => scene.isTextOpening,
-      );
-      const waterDropIndex =
-        openingIndex >= 0 ? openingIndex : firstGeneratedIndex;
-      if (firstGeneratedIndex >= 0 || waterDropIndex >= 0) {
+      let storyboardSource = await provider.generate({
+        sourceText: project.sourceText,
+        ...request,
+      });
+      const firstScene = storyboardSource.scenes[0];
+      if (firstScene) {
         const scenes = [...storyboardSource.scenes];
-        if (firstGeneratedIndex >= 0) {
-          scenes[firstGeneratedIndex] = {
-            ...scenes[firstGeneratedIndex]!,
-            animation: { type: "RISE", direction: "UP", intensity: 1 },
-          };
-        }
-        if (waterDropIndex >= 0) {
-          scenes[waterDropIndex] = {
-            ...scenes[waterDropIndex]!,
-            soundEffects: [{ tag: "water", offsetRatio: 0, gainDb: -4 }],
-          };
-        }
+        scenes[0] = {
+          ...firstScene,
+          animation: { type: "RISE", direction: "UP", intensity: 1 },
+          soundEffects: [
+            ...firstScene.soundEffects,
+            { tag: "water" as const, offsetRatio: 0, gainDb: -4 },
+          ].slice(0, 5),
+        };
         storyboardSource = { ...storyboardSource, scenes };
       }
       const storyboard = storyboardSource;
@@ -152,16 +109,11 @@ export function createScriptProcessor(
             animation: scene.animation,
             transition: scene.transition,
             soundEffects: scene.soundEffects,
-            isTextOpening: scene.isTextOpening ?? false,
           })),
         });
         await tx.project.update({
           where: { id: project.id },
-          data: {
-            title: storyboard.title,
-            targetDuration: duration,
-            status: "READY",
-          },
+          data: buildReadyProjectUpdate(duration),
         });
       });
 
