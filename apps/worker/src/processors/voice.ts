@@ -5,6 +5,7 @@ import {
   alignSubtitleCueStartsToPcmWav,
   alignTextToDuration,
   concatenatePcmWav,
+  mutePcmWavBeforeMs,
   pcmWavTrailingSilenceMs,
   slicePcmWav,
   splitSubtitleText,
@@ -29,6 +30,7 @@ import {
 import { alignNarrationWithLocalWhisper } from "../services/local-whisper-aligner";
 import { createExactAudioPartitions } from "../services/voice-alignment-batches";
 import { cleanVoiceReferenceAudio } from "../services/voice-reference-cleaner";
+import { cleanVoiceOutputAudio } from "../services/voice-output-cleaner";
 
 const OBJECT_KEY_SEGMENT = /^[a-zA-Z0-9_-]{1,100}$/u;
 
@@ -245,6 +247,7 @@ export async function partitionContinuousVoice(
 
 export interface VoiceProcessorDependencies {
   synthesize?: (request: IndexTTSAudioRequest) => Promise<Uint8Array>;
+  cleanOutput?: (audio: Uint8Array) => Promise<Uint8Array>;
   align?: (input: {
     audio: Uint8Array;
     text: string;
@@ -257,6 +260,7 @@ export function createVoiceProcessor(
   dependencies: VoiceProcessorDependencies = {},
 ) {
   const synthesize = dependencies.synthesize ?? synthesizeIndexTTSAudio;
+  const cleanOutput = dependencies.cleanOutput ?? cleanVoiceOutputAudio;
   const align =
     dependencies.align ??
     ((input: {
@@ -353,11 +357,12 @@ export function createVoiceProcessor(
           },
         },
       });
-      const audio = await synthesize({
+      const synthesizedAudio = await synthesize({
         serviceUrl,
         text: narration,
         referenceAudio,
       });
+      const audio = await cleanOutput(synthesizedAudio);
       const durationMs = wavDurationMs(audio);
       if (!durationMs || durationMs < 100) {
         throw new Error("INDEXTTS_AUDIO_INVALID");
@@ -390,7 +395,7 @@ export function createVoiceProcessor(
         };
       }
 
-      const slices = groupScenes.map((groupScene, index) => {
+      const rawSlices = groupScenes.map((groupScene, index) => {
         const boundary = partition.boundaries[index]!;
         const rawClip = slicePcmWav(audio, boundary.startMs, boundary.endMs);
         // Keep the clip's internal timeline intact. Removing a quiet gap here
@@ -411,6 +416,42 @@ export function createVoiceProcessor(
             input.jobId,
           ),
           boundary,
+        };
+      });
+      // Whisper fallback can still identify a real speech onset while the
+      // provider output begins with a short click/buzz. Mute only that head;
+      // duration and all later subtitle timestamps stay unchanged.
+      const slices = rawSlices.map((slice, index) => {
+        let sourceCues: SubtitleCueInput[];
+        if (partition.mode === "whisper" && partition.cueGroups?.[index]) {
+          sourceCues = partition.cueGroups[index].map((cue) => ({
+            ...cue,
+            startMs: Math.max(0, cue.startMs - slice.boundary.startMs),
+            endMs: Math.max(
+              Math.max(1, cue.startMs - slice.boundary.startMs + 1),
+              cue.endMs - slice.boundary.startMs,
+            ),
+          }));
+        } else {
+          sourceCues = voiceSubtitleCues(
+            slice.scene.subtitle,
+            slice.durationMs,
+          );
+        }
+        const snappedCues = alignSubtitleCueStartsToPcmWav(
+          slice.clip,
+          sourceCues,
+          { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
+        );
+        const firstCueStartMs = snappedCues[0]?.startMs ?? 0;
+        const clip = mutePcmWavBeforeMs(
+          slice.clip,
+          Math.max(0, firstCueStartMs - 20),
+        );
+        return {
+          ...slice,
+          clip,
+          durationMs: wavDurationMs(clip) ?? slice.durationMs,
         };
       });
       const coversAllScenes =

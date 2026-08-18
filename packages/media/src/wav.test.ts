@@ -10,6 +10,7 @@ import {
   findQuietestPcmWavPointMs,
   hasAbruptWavEnding,
   interSceneNarrationPauseMs,
+  mutePcmWavBeforeMs,
   narrationPauseAfterMs,
   normalizeNarrationPcmWav,
   pcmWavTrailingSilenceMs,
@@ -39,6 +40,28 @@ function makePcmWav(durationMs: number, sampleRate = 8_000): Uint8Array {
   output.fill(1, 44);
   return output;
 }
+
+function makePcmWavWithHeadAndSpeech(): Uint8Array {
+  const audio = makePcmWav(300, 8_000);
+  const view = new DataView(audio.buffer);
+  for (let offset = 44; offset < audio.byteLength; offset += 2) {
+    view.setInt16(offset, offset < 44 + 800 ? 2_000 : 12_000, true);
+  }
+  return audio;
+}
+
+describe("mutePcmWavBeforeMs", () => {
+  it("mutes only the noisy head and preserves duration", () => {
+    const audio = makePcmWavWithHeadAndSpeech();
+    const muted = mutePcmWavBeforeMs(audio, 100, 12);
+    const view = new DataView(muted.buffer);
+
+    expect(wavDurationMs(muted)).toBe(wavDurationMs(audio));
+    expect(view.getInt16(44, true)).toBe(0);
+    expect(view.getInt16(44 + 800, true)).toBe(0);
+    expect(view.getInt16(44 + 2_000, true)).toBeGreaterThan(0);
+  });
+});
 
 function makePcmWavWithAmplitude(
   durationMs: number,

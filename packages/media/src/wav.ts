@@ -1002,6 +1002,60 @@ export function hasAbruptWavEnding(
   return tailRms >= minRms && tailRms / overallRms >= minRatio;
 }
 
+/**
+ * Mutes a noisy/pre-roll head without changing the WAV duration or any cue
+ * timestamps. A short fade-in keeps the first spoken sample click-free.
+ */
+export function mutePcmWavBeforeMs(
+  audio: Uint8Array,
+  endMs: number,
+  fadeMs = 12,
+): Uint8Array {
+  if (endMs <= 0) return audio;
+  try {
+    const parsed = parsePcmWav(audio);
+    if (parsed.bitsPerSample !== 16) return audio;
+    const totalFrames = Math.floor(parsed.data.byteLength / parsed.blockAlign);
+    const endFrame = Math.min(
+      totalFrames,
+      Math.max(0, Math.round((parsed.sampleRate * endMs) / 1_000)),
+    );
+    if (endFrame <= 0) return audio;
+    const output = new Uint8Array(audio);
+    const dataOffset = audio.byteLength - parsed.data.byteLength;
+    const view = new DataView(
+      output.buffer,
+      output.byteOffset,
+      output.byteLength,
+    );
+    for (let frame = 0; frame < endFrame; frame += 1) {
+      const offset = dataOffset + frame * parsed.blockAlign;
+      for (let channel = 0; channel < parsed.channels; channel += 1) {
+        view.setInt16(offset + channel * 2, 0, true);
+      }
+    }
+    const fadeFrames = Math.min(
+      Math.max(0, Math.round((parsed.sampleRate * fadeMs) / 1_000)),
+      totalFrames - endFrame,
+    );
+    for (let frame = 0; frame < fadeFrames; frame += 1) {
+      const gain = fadeFrames <= 1 ? 1 : frame / (fadeFrames - 1);
+      const offset = dataOffset + (endFrame + frame) * parsed.blockAlign;
+      for (let channel = 0; channel < parsed.channels; channel += 1) {
+        const sampleOffset = offset + channel * 2;
+        view.setInt16(
+          sampleOffset,
+          Math.round(view.getInt16(sampleOffset, true) * gain),
+          true,
+        );
+      }
+    }
+    return output;
+  } catch {
+    return audio;
+  }
+}
+
 export function fadeOutPcmWav(audio: Uint8Array, fadeMs: number): Uint8Array {
   if (fadeMs <= 0) return audio;
   try {
