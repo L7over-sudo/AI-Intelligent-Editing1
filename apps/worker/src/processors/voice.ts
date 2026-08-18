@@ -28,6 +28,7 @@ import {
 } from "../services/indextts-audio-provider";
 import { alignNarrationWithLocalWhisper } from "../services/local-whisper-aligner";
 import { createExactAudioPartitions } from "../services/voice-alignment-batches";
+import { cleanVoiceReferenceAudio } from "../services/voice-reference-cleaner";
 
 const OBJECT_KEY_SEGMENT = /^[a-zA-Z0-9_-]{1,100}$/u;
 
@@ -326,8 +327,8 @@ export function createVoiceProcessor(
         referenceMetadata.serviceUrl,
         process.env.INDEXTTS_SERVICE_URL,
       );
-      const referenceAudio = await objectStore.get(
-        voiceProfile.asset.objectKey,
+      const referenceAudio = await cleanVoiceReferenceAudio(
+        await objectStore.get(voiceProfile.asset.objectKey),
       );
 
       const groupScenes = continuousVoiceGroupForScene(
