@@ -866,7 +866,7 @@ export function alignSubtitleCueStartsToPcmWav(
       sortedWindowRms[
         Math.floor(Math.max(0, sortedWindowRms.length - 1) * 0.05)
       ] ?? 0;
-    const quietThreshold = Math.max(90, noiseFloor * 2.5);
+    const quietThreshold = Math.max(90, noiseFloor * 4);
     const activeThreshold = Math.max(
       220,
       overallRms * 0.12,
