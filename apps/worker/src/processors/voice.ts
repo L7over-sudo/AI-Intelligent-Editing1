@@ -284,15 +284,22 @@ export function createVoiceProcessor(
     const input = voiceGenerationInputSchema.parse(localJob.data);
     const prisma = getPrisma();
 
-    await prisma.generationJob.update({
-      where: { id: input.jobId },
+    const started = await prisma.generationJob.updateMany({
+      where: { id: input.jobId, status: "RUNNING" },
       data: {
-        status: "RUNNING",
         startedAt: new Date(),
         progress: 5,
-        events: {
-          create: { status: "RUNNING", progress: 5, code: "VOICE_STARTED" },
-        },
+      },
+    });
+    if (started.count !== 1) {
+      throw new Error("VOICE_JOB_NOT_RUNNING");
+    }
+    await prisma.jobEvent.create({
+      data: {
+        jobId: input.jobId,
+        status: "RUNNING",
+        progress: 5,
+        code: "VOICE_STARTED",
       },
     });
 
@@ -580,8 +587,8 @@ export function createVoiceProcessor(
       });
       return { audioObjectKey: masterObjectKey ?? slices[0]!.objectKey };
     } catch (error) {
-      await prisma.generationJob.update({
-        where: { id: input.jobId },
+      await prisma.generationJob.updateMany({
+        where: { id: input.jobId, status: "RUNNING" },
         data: {
           status: "FAILED",
           errorCode: "VOICE_GENERATION_FAILED",

@@ -30,3 +30,11 @@ export function allowedJobTypesForRole(
   if (role === "media") return mediaJobTypes;
   return undefined;
 }
+
+/**
+ * IndexTTS2 owns one model instance, so only one VOICE job may be claimed at
+ * a time across the local workers.
+ */
+export function voiceClaimAvailable(runningVoiceJobs: number): boolean {
+  return runningVoiceJobs === 0;
+}

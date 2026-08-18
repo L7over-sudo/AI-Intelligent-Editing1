@@ -4,6 +4,7 @@ import {
   allowedJobTypesForRole,
   mediaJobTypes,
   parseWorkerRole,
+  voiceClaimAvailable,
 } from "./worker-role";
 
 describe("parseWorkerRole", () => {
@@ -52,5 +53,16 @@ describe("allowedJobTypesForRole", () => {
       full.filter((type) => type !== "RENDER").sort(),
     );
     expect([...media, "RENDER"].sort()).toEqual(full.sort());
+  });
+});
+
+describe("voiceClaimAvailable", () => {
+  it("allows one voice claim when none is running", () => {
+    expect(voiceClaimAvailable(0)).toBe(true);
+  });
+
+  it("blocks a second voice claim while one is running", () => {
+    expect(voiceClaimAvailable(1)).toBe(false);
+    expect(voiceClaimAvailable(2)).toBe(false);
   });
 });

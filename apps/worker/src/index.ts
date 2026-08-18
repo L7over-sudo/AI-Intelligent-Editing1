@@ -4,7 +4,7 @@ import { config as loadEnv } from "dotenv";
 
 import { z } from "zod";
 
-import { getPrisma } from "@stickmotion/db";
+import { getPrisma, type Prisma } from "@stickmotion/db";
 import type { LocalJob } from "@stickmotion/queue";
 import {
   jianyingDraftGenerationInputSchema,
@@ -26,7 +26,11 @@ import { createScriptProcessor } from "./processors/script";
 import { createVoiceProcessor } from "./processors/voice";
 import { startSettingsServer } from "./settings-server";
 import { getLocalRetryPolicy } from "./services/local-retry-policy";
-import { mediaJobTypes, parseWorkerRole } from "./worker-role";
+import {
+  mediaJobTypes,
+  parseWorkerRole,
+  voiceClaimAvailable,
+} from "./worker-role";
 
 const workspaceEnvPath = path.resolve(process.cwd(), "../..", ".env");
 
@@ -37,15 +41,20 @@ function reloadRuntimeEnvironment(): void {
 reloadRuntimeEnvironment();
 
 const workerRole = parseWorkerRole(process.env.WORKER_ROLE);
-const roleTypeFilter:
-  | { type: "RENDER" }
-  | { type: { in: Array<(typeof mediaJobTypes)[number]> } }
-  | undefined =
-  workerRole === "render"
-    ? { type: "RENDER" }
-    : workerRole === "media"
-      ? { type: { in: [...mediaJobTypes] } }
-      : undefined;
+const nonVoiceMediaJobTypes = mediaJobTypes.filter(
+  (type): type is Exclude<(typeof mediaJobTypes)[number], "VOICE"> =>
+    type !== "VOICE",
+);
+
+function roleTypeFilter(voiceBusy: boolean): Prisma.GenerationJobWhereInput {
+  if (workerRole === "render") return { type: "RENDER" };
+  if (workerRole === "media") {
+    return {
+      type: { in: voiceBusy ? nonVoiceMediaJobTypes : [...mediaJobTypes] },
+    };
+  }
+  return voiceBusy ? { type: { not: "VOICE" } } : {};
+}
 
 if (workerRole !== "media") {
   startSettingsServer();
@@ -85,25 +94,42 @@ const cleanError = (error: unknown) =>
 
 async function claimNextJob() {
   const prisma = getPrisma();
+  const runningVoiceJobs = await prisma.generationJob.count({
+    where: { type: "VOICE", status: "RUNNING" },
+  });
+  const voiceBusy = !voiceClaimAvailable(runningVoiceJobs);
   const candidate = await prisma.generationJob.findFirst({
     where: {
       status: { in: ["QUEUED", "RETRYING"] },
       queuedAt: { lte: new Date() },
-      ...(roleTypeFilter ?? {}),
+      ...roleTypeFilter(voiceBusy),
     },
     orderBy: [{ queuedAt: "asc" }, { createdAt: "asc" }],
   });
   if (!candidate) return undefined;
 
-  const claimed = await prisma.generationJob.updateMany({
-    where: { id: candidate.id, status: candidate.status },
-    data: {
-      status: "RUNNING",
-      startedAt: new Date(),
-      attempt: { increment: 1 },
-    },
-  });
-  return claimed.count === 1 ? candidate : undefined;
+  // The two media workers share one IndexTTS2 model. Keep voice claims
+  // single-file even when both workers race on the same SQLite queue. The
+  // NOT EXISTS guard is part of the UPDATE so a stale count/findFirst pair
+  // cannot let both workers enter synthesis concurrently.
+  const claimed = await prisma.$executeRaw`
+    UPDATE "GenerationJob"
+    SET "status" = 'RUNNING',
+        "startedAt" = ${new Date()},
+        "attempt" = "attempt" + 1
+    WHERE "id" = ${candidate.id}
+      AND "status" = ${candidate.status}
+      AND (
+        "type" <> 'VOICE'
+        OR NOT EXISTS (
+          SELECT 1
+          FROM "GenerationJob" AS runningVoice
+          WHERE runningVoice."type" = 'VOICE'
+            AND runningVoice."status" = 'RUNNING'
+        )
+      )
+  `;
+  return claimed === 1 ? candidate : undefined;
 }
 
 async function retryOrFail(jobId: string, error: unknown): Promise<void> {

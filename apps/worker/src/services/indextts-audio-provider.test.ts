@@ -43,7 +43,13 @@ describe("synthesizeIndexTTSAudio", () => {
 
   it("posts multipart audio and returns wav bytes", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (String(input).endsWith("/api/health")) return healthResponse();
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.endsWith("/api/health")) return healthResponse();
       return new Response(wav, {
         status: 200,
         headers: { "content-type": "audio/wav" },
