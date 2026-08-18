@@ -23,9 +23,9 @@ describe("voiceTextForScene", () => {
   });
 
   it("falls back to the subtitle text", () => {
-    expect(
-      voiceTextForScene({ narration: " ", subtitle: "字幕内容" }),
-    ).toBe("字幕内容");
+    expect(voiceTextForScene({ narration: " ", subtitle: "字幕内容" })).toBe(
+      "字幕内容",
+    );
   });
 
   it("throws when both texts are empty", () => {
@@ -43,12 +43,12 @@ describe("voiceAudioObjectKey", () => {
   });
 
   it("rejects path traversal segments", () => {
-    expect(() =>
-      voiceAudioObjectKey("project/../x", "scene", "job"),
-    ).toThrow("VOICE_OBJECT_KEY_INVALID");
-    expect(() =>
-      voiceAudioObjectKey("project", "scene", "job\\x"),
-    ).toThrow("VOICE_OBJECT_KEY_INVALID");
+    expect(() => voiceAudioObjectKey("project/../x", "scene", "job")).toThrow(
+      "VOICE_OBJECT_KEY_INVALID",
+    );
+    expect(() => voiceAudioObjectKey("project", "scene", "job\\x")).toThrow(
+      "VOICE_OBJECT_KEY_INVALID",
+    );
   });
 });
 
@@ -63,9 +63,9 @@ describe("resolveVoiceServiceUrl", () => {
   });
 
   it("falls back to the environment URL", () => {
-    expect(
-      resolveVoiceServiceUrl(undefined, "http://localhost:7851/"),
-    ).toBe("http://localhost:7851");
+    expect(resolveVoiceServiceUrl(undefined, "http://localhost:7851/")).toBe(
+      "http://localhost:7851",
+    );
   });
 
   it("throws when no loopback URL is configured", () => {
@@ -98,7 +98,7 @@ describe("voiceSubtitleCues", () => {
 });
 
 describe("finalizeSceneSubtitleCues", () => {
-  it("shifts cues after the speech onset and clamps to the scene duration", () => {
+  it("keeps cues on the speech timeline and clamps to the scene duration", () => {
     const cues = finalizeSceneSubtitleCues(
       [
         { text: "第一句", startMs: 120, endMs: 900 },
@@ -108,8 +108,8 @@ describe("finalizeSceneSubtitleCues", () => {
       2000,
     );
     expect(cues).toEqual([
-      { startMs: 40, endMs: 820, text: "第一句" },
-      { startMs: 1420, endMs: 2000, text: "第二句" },
+      { startMs: 0, endMs: 780, text: "第一句" },
+      { startMs: 1380, endMs: 2000, text: "第二句" },
     ]);
   });
 
@@ -197,7 +197,11 @@ describe("proportionalSceneDurationsMs", () => {
 describe("sceneBoundariesFromCueStarts", () => {
   it("builds contiguous boundaries ending at the total duration", () => {
     const boundaries = sceneBoundariesFromCueStarts(
-      [[100, 900], [1500, 2200], [3000, 3600]],
+      [
+        [100, 900],
+        [1500, 2200],
+        [3000, 3600],
+      ],
       4000,
     );
     expect(boundaries).toEqual([

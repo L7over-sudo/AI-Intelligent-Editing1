@@ -155,11 +155,8 @@ export function capInternalSilencePcmWav(
     let gapStartMs = 0;
     for (let atMs = 0; atMs <= durationMs; atMs += windowMs) {
       const quiet =
-        pcm16WindowRms(
-          parsed,
-          atMs,
-          Math.min(durationMs, atMs + windowMs),
-        ) <= quietThreshold;
+        pcm16WindowRms(parsed, atMs, Math.min(durationMs, atMs + windowMs)) <=
+        quietThreshold;
       if (quiet && !inGap) {
         inGap = true;
         gapStartMs = atMs;
@@ -210,9 +207,7 @@ export function slicePcmWav(
   endMs: number,
 ): Uint8Array {
   const parsed = parsePcmWav(audio);
-  const totalFrames = Math.floor(
-    parsed.data.byteLength / parsed.blockAlign,
-  );
+  const totalFrames = Math.floor(parsed.data.byteLength / parsed.blockAlign);
   const startFrame = Math.min(
     totalFrames,
     Math.max(0, Math.round((parsed.sampleRate * startMs) / 1_000)),
@@ -301,9 +296,13 @@ const pauseBoundaryPattern = /[。！？!?；;：:，,、…]/u;
 const closingPunctuationPattern = /[”’》）】〕〉」』"')\]]+$/u;
 
 function endsWithPauseBoundary(text: string): boolean {
-  const withoutClosingMarks = text.trim().replace(closingPunctuationPattern, "");
+  const withoutClosingMarks = text
+    .trim()
+    .replace(closingPunctuationPattern, "");
   const lastCharacter = Array.from(withoutClosingMarks).at(-1);
-  return lastCharacter !== undefined && pauseBoundaryPattern.test(lastCharacter);
+  return (
+    lastCharacter !== undefined && pauseBoundaryPattern.test(lastCharacter)
+  );
 }
 
 function pcm16GapIsQuiet(
@@ -395,10 +394,7 @@ export function repairIntraSentencePausesPcmWav(
       }
 
       const sampleRate = parsed.sampleRate;
-      const gapFrames = Math.max(
-        1,
-        Math.round((gapMs * sampleRate) / 1_000),
-      );
+      const gapFrames = Math.max(1, Math.round((gapMs * sampleRate) / 1_000));
       const targetFrames = Math.max(
         1,
         Math.round((targetGapMs * sampleRate) / 1_000),
@@ -411,12 +407,12 @@ export function repairIntraSentencePausesPcmWav(
         requestedCrossfadeFrames,
         Math.max(0, Math.floor(gapFrames / 4)),
       );
-      const middleRemoveFrames =
-        gapFrames - targetFrames - crossfadeFrames;
+      const middleRemoveFrames = gapFrames - targetFrames - crossfadeFrames;
       if (middleRemoveFrames <= 0) continue;
 
       const cutStartMs =
-        gapStartMs + ((gapFrames - middleRemoveFrames) * 1_000) / sampleRate / 2;
+        gapStartMs +
+        ((gapFrames - middleRemoveFrames) * 1_000) / sampleRate / 2;
       const cutEndMs = cutStartMs + (middleRemoveFrames * 1_000) / sampleRate;
       const beforeDurationMs = wavDurationMs(repairedAudio) ?? 0;
       repairedAudio = removePcmRangeWithCrossfade(
@@ -437,12 +433,7 @@ export function repairIntraSentencePausesPcmWav(
           cutEndMs,
           removedMs,
         );
-        const endMs = shiftCueTime(
-          cue.endMs,
-          cutStartMs,
-          cutEndMs,
-          removedMs,
-        );
+        const endMs = shiftCueTime(cue.endMs, cutStartMs, cutEndMs, removedMs);
         return {
           ...cue,
           startMs: Math.max(0, startMs),
@@ -493,7 +484,10 @@ function removePcmRangeWithCrossfade(
   const totalFrames = Math.floor(parsed.data.byteLength / parsed.blockAlign);
   const startFrame = Math.max(
     0,
-    Math.min(totalFrames - 1, Math.round((startMs * parsed.sampleRate) / 1_000)),
+    Math.min(
+      totalFrames - 1,
+      Math.round((startMs * parsed.sampleRate) / 1_000),
+    ),
   );
   const endFrame = Math.max(
     startFrame + 1,
@@ -591,10 +585,7 @@ export function normalizeNarrationPcmWav({
   const firstCueMs = Math.min(...validCues.map((cue) => cue.startMs));
   const lastCueMs = Math.max(...validCues.map((cue) => cue.endMs));
   const trimStartMs = Math.max(0, firstCueMs - edgePaddingMs);
-  const trimEndMs = Math.min(
-    sourceDurationMs,
-    lastCueMs + edgePaddingMs,
-  );
+  const trimEndMs = Math.min(sourceDurationMs, lastCueMs + edgePaddingMs);
   if (trimEndMs <= trimStartMs) {
     return {
       audio,
@@ -665,7 +656,8 @@ export function normalizeNarrationPcmWav({
   return {
     audio: normalizedAudio,
     cues: normalizedCues,
-    durationMs: wavDurationMs(normalizedAudio) ?? contentDurationMs + pauseAfterMs,
+    durationMs:
+      wavDurationMs(normalizedAudio) ?? contentDurationMs + pauseAfterMs,
     trimStartMs,
     trimEndMs,
     pauseAfterMs,
@@ -714,8 +706,7 @@ export function pcmWavTailRms(
       Math.max(1, Math.round((parsed.sampleRate * tailMs) / 1_000)),
       Math.floor(parsed.data.byteLength / parsed.blockAlign),
     );
-    const startOffset =
-      parsed.data.byteLength - tailFrames * parsed.blockAlign;
+    const startOffset = parsed.data.byteLength - tailFrames * parsed.blockAlign;
     return rmsOfPcm16(parsed.data.subarray(startOffset));
   } catch {
     return undefined;
@@ -756,9 +747,7 @@ export function ensureMinimumTrailingSilencePcmWav(
   if (minimumMs <= 0) return audio;
   const existingMs = pcmWavTrailingSilenceMs(audio);
   if (existingMs === undefined || existingMs >= minimumMs) return audio;
-  return concatenatePcmWav([
-    { audio, pauseAfterMs: minimumMs - existingMs },
-  ]);
+  return concatenatePcmWav([{ audio, pauseAfterMs: minimumMs - existingMs }]);
 }
 
 function pcm16WindowRms(
@@ -860,7 +849,29 @@ export function alignSubtitleCueStartsToPcmWav(
     const radiusMs = Math.max(80, options.searchRadiusMs ?? 350);
     const windowMs = Math.max(10, options.windowMs ?? 20);
     const overallRms = pcmWavOverallRms(audio) ?? 0;
-    const activeThreshold = Math.max(220, overallRms * 0.12);
+    // IndexTTS can emit a short, loud pre-roll click before the actual voice.
+    // A threshold derived only from the whole clip treats that click as the
+    // onset, which makes the first subtitle lead the spoken words. Estimate a
+    // noise floor from the quietest windows and require a clear rise above it.
+    const windowRmsValues: number[] = [];
+    for (let atMs = 0; atMs < durationMs; atMs += windowMs) {
+      windowRmsValues.push(
+        pcm16WindowRms(parsed, atMs, Math.min(durationMs, atMs + windowMs)),
+      );
+    }
+    const sortedWindowRms = [...windowRmsValues].sort(
+      (left, right) => left - right,
+    );
+    const noiseFloor =
+      sortedWindowRms[
+        Math.floor(Math.max(0, sortedWindowRms.length - 1) * 0.05)
+      ] ?? 0;
+    const quietThreshold = Math.max(90, noiseFloor * 2.5);
+    const activeThreshold = Math.max(
+      220,
+      overallRms * 0.12,
+      quietThreshold * 1.5,
+    );
     const firstSustainedOnsetMs = (() => {
       const firstSearchRadiusMs = Math.max(
         radiusMs,
@@ -868,21 +879,25 @@ export function alignSubtitleCueStartsToPcmWav(
       );
       const searchEndMs = Math.min(
         durationMs - windowMs * 2,
-        Math.max(
-          firstSearchRadiusMs,
-          cues[0]!.startMs + firstSearchRadiusMs,
-        ),
+        Math.max(firstSearchRadiusMs, cues[0]!.startMs + firstSearchRadiusMs),
       );
+      const sustainedWindows = 5;
+      const quietWindowsBeforeOnset = 3;
       for (let atMs = 0; atMs <= searchEndMs; atMs += windowMs) {
-        const activeOne = pcm16WindowRms(parsed, atMs, atMs + windowMs);
-        const activeTwo = pcm16WindowRms(
-          parsed,
-          atMs + windowMs,
-          atMs + windowMs * 2,
-        );
-        if (activeOne >= activeThreshold && activeTwo >= activeThreshold) {
-          return atMs;
-        }
+        const startIndex = Math.round(atMs / windowMs);
+        const endIndex = startIndex + sustainedWindows;
+        const sustained = windowRmsValues
+          .slice(startIndex, endIndex)
+          .every((value) => value >= activeThreshold);
+        if (!sustained) continue;
+
+        // At the beginning of a clean clip there is no preceding quiet run;
+        // accept a genuinely sustained onset at zero. Otherwise require a
+        // short quiet run so an isolated pre-roll click cannot win.
+        const hasQuietRun = windowRmsValues
+          .slice(Math.max(0, startIndex - quietWindowsBeforeOnset), startIndex)
+          .every((value) => value <= quietThreshold);
+        if (startIndex === 0 || hasQuietRun) return atMs;
       }
       return undefined;
     })();
@@ -903,7 +918,6 @@ export function alignSubtitleCueStartsToPcmWav(
       const maximumMs = Math.min(durationMs - 1, cue.startMs + radiusMs);
       if (maximumMs <= minimumMs) return cue.startMs;
 
-      const quietThreshold = Math.max(90, overallRms * 0.055);
       const candidates: number[] = [];
       for (
         let atMs = minimumMs + windowMs * 2;
@@ -954,10 +968,9 @@ export function alignSubtitleCueStartsToPcmWav(
     return cues.map((cue, index) => ({
       ...cue,
       startMs: orderedStarts[index]!,
-      endMs:
-        options.preserveCueEnds
-          ? Math.max(orderedStarts[index]! + 1, cue.endMs)
-          : orderedStarts[index + 1] === undefined
+      endMs: options.preserveCueEnds
+        ? Math.max(orderedStarts[index]! + 1, cue.endMs)
+        : orderedStarts[index + 1] === undefined
           ? Math.max(orderedStarts[index]! + 1, cue.endMs)
           : orderedStarts[index + 1]!,
     }));
@@ -983,11 +996,7 @@ export function hasAbruptWavEnding(
   if (!durationMs || durationMs < minimumDurationMs) return false;
   const tailRms = pcmWavTailRms(audio, tailMs);
   const overallRms = pcmWavOverallRms(audio);
-  if (
-    tailRms === undefined ||
-    overallRms === undefined ||
-    overallRms <= 0
-  ) {
+  if (tailRms === undefined || overallRms === undefined || overallRms <= 0) {
     return false;
   }
   return tailRms >= minRms && tailRms / overallRms >= minRatio;
@@ -1013,8 +1022,7 @@ export function fadeOutPcmWav(audio: Uint8Array, fadeMs: number): Uint8Array {
       Math.floor(parsed.data.byteLength / parsed.blockAlign) - sampleFrames;
     for (let frame = 0; frame < sampleFrames; frame += 1) {
       const gain = sampleFrames === 1 ? 0 : 1 - frame / (sampleFrames - 1);
-      const byteOffset =
-        dataOffset + (startFrame + frame) * parsed.blockAlign;
+      const byteOffset = dataOffset + (startFrame + frame) * parsed.blockAlign;
       for (let channel = 0; channel < parsed.channels; channel += 1) {
         const sampleOffset = byteOffset + channel * 2;
         const sample = view.getInt16(sampleOffset, true);

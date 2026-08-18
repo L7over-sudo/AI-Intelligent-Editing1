@@ -58,7 +58,10 @@ function makePcmWavWithRegions(
   regions: ReadonlyArray<{ durationMs: number; amplitude: number }>,
   sampleRate = 8_000,
 ): Uint8Array {
-  const durationMs = regions.reduce((sum, region) => sum + region.durationMs, 0);
+  const durationMs = regions.reduce(
+    (sum, region) => sum + region.durationMs,
+    0,
+  );
   const output = makePcmWav(durationMs, sampleRate);
   const view = new DataView(output.buffer);
   let frame = 0;
@@ -174,11 +177,7 @@ describe("voice tail protection", () => {
   it("fades out the tail without changing duration", () => {
     const source = makePcmWavWithAmplitude(200, 10_000);
     const faded = fadeOutPcmWav(source, 100);
-    const view = new DataView(
-      faded.buffer,
-      faded.byteOffset,
-      faded.byteLength,
-    );
+    const view = new DataView(faded.buffer, faded.byteOffset, faded.byteLength);
 
     expect(wavDurationMs(faded)).toBe(200);
     expect(Math.abs(view.getInt16(44, true))).toBeGreaterThan(
@@ -189,11 +188,7 @@ describe("voice tail protection", () => {
   it("fades in the head without changing duration", () => {
     const source = makePcmWavWithAmplitude(200, 10_000);
     const faded = fadeInPcmWav(source, 100);
-    const view = new DataView(
-      faded.buffer,
-      faded.byteOffset,
-      faded.byteLength,
-    );
+    const view = new DataView(faded.buffer, faded.byteOffset, faded.byteLength);
 
     expect(wavDurationMs(faded)).toBe(200);
     expect(Math.abs(view.getInt16(44, true))).toBeLessThan(
@@ -253,9 +248,7 @@ describe("capInternalSilencePcmWav", () => {
       { durationMs: 300, amplitude: 0 },
     ]);
     expect(
-      wavDurationMs(
-        capInternalSilencePcmWav(source, { maximumPauseMs: 100 }),
-      ),
+      wavDurationMs(capInternalSilencePcmWav(source, { maximumPauseMs: 100 })),
     ).toBe(500);
   });
 });
@@ -287,6 +280,22 @@ describe("subtitle acoustic alignment", () => {
 
     expect(cues[0]?.startMs).toBeGreaterThanOrEqual(580);
     expect(cues[0]?.startMs).toBeLessThanOrEqual(620);
+  });
+
+  it("ignores a loud pre-roll click followed by a noisy gap", () => {
+    const audio = makePcmWavWithRegions([
+      { durationMs: 40, amplitude: 12_000 },
+      { durationMs: 280, amplitude: 300 },
+      { durationMs: 800, amplitude: 4_000 },
+    ]);
+    const cues = alignSubtitleCueStartsToPcmWav(
+      audio,
+      [{ startMs: 0, endMs: 1_120, text: "first" }],
+      { firstCueStrategy: "acoustic", firstSearchRadiusMs: 500 },
+    );
+
+    expect(cues[0]?.startMs).toBeGreaterThanOrEqual(300);
+    expect(cues[0]?.startMs).toBeLessThanOrEqual(340);
   });
 
   it("can correct a provider first cue that is later than the acoustic onset", () => {

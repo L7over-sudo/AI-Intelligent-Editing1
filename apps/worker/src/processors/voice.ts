@@ -4,7 +4,6 @@ import { getPrisma } from "@stickmotion/db";
 import {
   alignSubtitleCueStartsToPcmWav,
   alignTextToDuration,
-  capInternalSilencePcmWav,
   concatenatePcmWav,
   pcmWavTrailingSilenceMs,
   slicePcmWav,
@@ -89,19 +88,12 @@ export function finalizeSceneSubtitleCues(
   boundaryStartMs: number,
   durationMs: number,
 ): Array<{ startMs: number; endMs: number; text: string }> {
-  const delayMs = 40;
   return cues
     .map((cue) => {
-      const startMs = Math.max(
-        0,
-        Math.round(cue.startMs - boundaryStartMs) + delayMs,
-      );
+      const startMs = Math.max(0, Math.round(cue.startMs - boundaryStartMs));
       const endMs = Math.min(
         durationMs,
-        Math.max(
-          startMs + 1,
-          Math.round(cue.endMs - boundaryStartMs) + delayMs,
-        ),
+        Math.max(startMs + 1, Math.round(cue.endMs - boundaryStartMs)),
       );
       return { startMs, endMs, text: cue.text };
     })
@@ -218,6 +210,7 @@ export async function partitionContinuousVoice(
     });
     const cues = alignSubtitleCueStartsToPcmWav(audio, rawCues, {
       firstSearchRadiusMs: 800,
+      firstCueStrategy: "acoustic",
     });
     const cueGroups: SubtitleCueInput[][] = [];
     let cursor = 0;
@@ -399,17 +392,18 @@ export function createVoiceProcessor(
       const slices = groupScenes.map((groupScene, index) => {
         const boundary = partition.boundaries[index]!;
         const rawClip = slicePcmWav(audio, boundary.startMs, boundary.endMs);
-        const clip = capInternalSilencePcmWav(
-          capWavTrailingSilence(
-            rawClip,
-            maximumSceneTrailingSilenceMs(groupScene.narration),
-          ),
+        // Keep the clip's internal timeline intact. Removing a quiet gap here
+        // without applying the same edit to Whisper cue timestamps makes every
+        // following subtitle drift later than its spoken word. Only the
+        // trailing tail is capped below; it cannot shift any cue start.
+        const clip = capWavTrailingSilence(
+          rawClip,
+          maximumSceneTrailingSilenceMs(groupScene.narration),
         );
         return {
           scene: groupScene,
           clip,
-          durationMs:
-            wavDurationMs(clip) ?? boundary.endMs - boundary.startMs,
+          durationMs: wavDurationMs(clip) ?? boundary.endMs - boundary.startMs,
           objectKey: voiceAudioObjectKey(
             input.projectId,
             groupScene.id,
@@ -521,13 +515,9 @@ export function createVoiceProcessor(
             const snappedCues = alignSubtitleCueStartsToPcmWav(
               slice.clip,
               baseCues,
-              { firstSearchRadiusMs: 800 },
+              { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
             );
-            cues = finalizeSceneSubtitleCues(
-              snappedCues,
-              0,
-              slice.durationMs,
-            );
+            cues = finalizeSceneSubtitleCues(snappedCues, 0, slice.durationMs);
           }
           if (cues.length > 0) {
             await tx.subtitleCue.createMany({
