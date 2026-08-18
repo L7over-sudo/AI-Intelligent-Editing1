@@ -500,25 +500,36 @@ export function createVoiceProcessor(
             },
           });
           if (!project.includeSubtitles) continue;
-          let cues: Array<{ startMs: number; endMs: number; text: string }>;
+          let sourceCues: SubtitleCueInput[];
           if (partition.mode === "whisper" && partition.cueGroups?.[index]) {
-            cues = finalizeSceneSubtitleCues(
-              partition.cueGroups[index],
-              slice.boundary.startMs,
-              slice.durationMs,
-            );
+            sourceCues = partition.cueGroups[index].map((cue) => ({
+              ...cue,
+              startMs: Math.max(0, cue.startMs - slice.boundary.startMs),
+              endMs: Math.max(
+                Math.max(1, cue.startMs - slice.boundary.startMs + 1),
+                cue.endMs - slice.boundary.startMs,
+              ),
+            }));
           } else {
-            const baseCues = voiceSubtitleCues(
+            sourceCues = voiceSubtitleCues(
               slice.scene.subtitle,
               slice.durationMs,
             );
-            const snappedCues = alignSubtitleCueStartsToPcmWav(
-              slice.clip,
-              baseCues,
-              { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
-            );
-            cues = finalizeSceneSubtitleCues(snappedCues, 0, slice.durationMs);
           }
+          // Re-snap against the exact scene clip that is stored. Global
+          // Whisper timestamps can miss a noisy/pre-roll onset at a scene
+          // boundary; using the final clip here keeps DB cues and WAV samples
+          // on one timeline for both continuous and single-scene synthesis.
+          const snappedCues = alignSubtitleCueStartsToPcmWav(
+            slice.clip,
+            sourceCues,
+            { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
+          );
+          const cues = finalizeSceneSubtitleCues(
+            snappedCues,
+            0,
+            slice.durationMs,
+          );
           if (cues.length > 0) {
             await tx.subtitleCue.createMany({
               data: cues.map((cue, order) => ({
