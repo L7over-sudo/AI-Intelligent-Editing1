@@ -25,10 +25,8 @@ import { createSceneImageProcessor } from "./processors/scene-image";
 import { createScriptProcessor } from "./processors/script";
 import { createVoiceProcessor } from "./processors/voice";
 import { startSettingsServer } from "./settings-server";
-import {
-  mediaJobTypes,
-  parseWorkerRole,
-} from "./worker-role";
+import { getLocalRetryPolicy } from "./services/local-retry-policy";
+import { mediaJobTypes, parseWorkerRole } from "./worker-role";
 
 const workspaceEnvPath = path.resolve(process.cwd(), "../..", ".env");
 
@@ -116,26 +114,33 @@ async function retryOrFail(jobId: string, error: unknown): Promise<void> {
   if (current.status === "CANCELED" || current.status === "CANCEL_REQUESTED") {
     return;
   }
-  const canRetry = current.attempt < current.maxAttempts;
   const message = cleanError(error);
-  const retryAt = new Date(
-    Date.now() +
-      Math.min(30_000, 1_000 * 2 ** Math.max(0, current.attempt - 1)),
-  );
+  const retryPolicy = getLocalRetryPolicy({
+    jobType: current.type,
+    attempt: current.attempt,
+    maxAttempts: current.maxAttempts,
+    errorMessage: message,
+  });
+  const retryAt = new Date(Date.now() + retryPolicy.delayMs);
   await prisma.generationJob.update({
     where: { id: jobId },
     data: {
-      status: canRetry ? "RETRYING" : "FAILED",
-      errorCode: canRetry ? "LOCAL_WORKER_RETRY" : "LOCAL_WORKER_FAILED",
+      status: retryPolicy.canRetry ? "RETRYING" : "FAILED",
+      errorCode: retryPolicy.canRetry
+        ? "LOCAL_WORKER_RETRY"
+        : "LOCAL_WORKER_FAILED",
       errorMessage: message,
-      queuedAt: canRetry ? retryAt : current.queuedAt,
+      maxAttempts: retryPolicy.maxAttempts,
+      queuedAt: retryPolicy.canRetry ? retryAt : current.queuedAt,
       startedAt: null,
-      finishedAt: canRetry ? null : new Date(),
+      finishedAt: retryPolicy.canRetry ? null : new Date(),
       events: {
         create: {
-          status: canRetry ? "RETRYING" : "FAILED",
+          status: retryPolicy.canRetry ? "RETRYING" : "FAILED",
           progress: current.progress,
-          code: canRetry ? "LOCAL_WORKER_RETRY" : "LOCAL_WORKER_FAILED",
+          code: retryPolicy.canRetry
+            ? "LOCAL_WORKER_RETRY"
+            : "LOCAL_WORKER_FAILED",
           message,
         },
       },
@@ -206,7 +211,8 @@ async function processJob(
           sceneIds: stored.sceneIds,
         });
       await createSceneImageProcessor()(makeLocalJob(data, record));
-    } else if (record.type === "VOICE") {      const stored = storedVoiceInputSchema.parse(record.input);
+    } else if (record.type === "VOICE") {
+      const stored = storedVoiceInputSchema.parse(record.input);
       const data: VoiceGenerationInput = voiceGenerationInputSchema.parse({
         jobId: record.id,
         projectId: record.projectId,

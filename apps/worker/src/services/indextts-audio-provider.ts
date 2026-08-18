@@ -1,7 +1,17 @@
 import { localVoiceServiceUrlSchema } from "@stickmotion/shared";
+import { z } from "zod";
 
 export const INDEX_TTS_SYNTHESIS_TIMEOUT_MS = 10 * 60_000;
+export const INDEX_TTS_HEALTH_TIMEOUT_MS = 5_000;
 export const INDEX_TTS_REFERENCE_MAX_BYTES = 200 * 1024 * 1024;
+
+const indexTtsHealthSchema = z
+  .object({
+    status: z.string(),
+    loaded: z.boolean(),
+    ready: z.boolean().optional(),
+  })
+  .passthrough();
 
 export interface IndexTTSAudioRequest {
   serviceUrl: string;
@@ -13,6 +23,39 @@ export interface IndexTTSAudioRequest {
 
 export function indexTtsServiceUrl(value: string): string {
   return localVoiceServiceUrlSchema.parse(value);
+}
+
+async function assertIndexTtsReady(serviceUrl: string): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    INDEX_TTS_HEALTH_TIMEOUT_MS,
+  );
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${serviceUrl}/api/health`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("INDEXTTS_SERVICE_TIMEOUT", { cause: error });
+      }
+      throw new Error("INDEXTTS_SERVICE_UNAVAILABLE", { cause: error });
+    }
+    if (!response.ok) {
+      throw new Error(`INDEXTTS_SERVICE_HTTP_ERROR_${response.status}`);
+    }
+    const health = indexTtsHealthSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    if (!health.success || !health.data.loaded || health.data.ready === false) {
+      throw new Error("INDEXTTS_SERVICE_NOT_READY");
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function synthesizeIndexTTSAudio(
@@ -27,6 +70,8 @@ export async function synthesizeIndexTTSAudio(
   if (request.referenceAudio.byteLength > INDEX_TTS_REFERENCE_MAX_BYTES) {
     throw new Error("VOICE_REFERENCE_TOO_LARGE");
   }
+
+  await assertIndexTtsReady(serviceUrl);
 
   const controller = new AbortController();
   const timeoutMs = request.timeoutMs ?? INDEX_TTS_SYNTHESIS_TIMEOUT_MS;
