@@ -25,47 +25,25 @@ describe("scene transition preference", () => {
 
   it("adds a transition before every non-final scene", () => {
     expect(
-      applyTransitionPreference(
-        { type: "CUT", duration: 0 },
-        true,
-        0,
-        3,
-      ),
+      applyTransitionPreference({ type: "CUT", duration: 0 }, true, 0, 3),
     ).toEqual({ type: "FADE", duration: 0.35 });
     expect(
-      applyTransitionPreference(
-        { type: "CUT", duration: 0 },
-        true,
-        2,
-        3,
-      ),
+      applyTransitionPreference({ type: "CUT", duration: 0 }, true, 2, 3),
     ).toEqual({ type: "CUT", duration: 0 });
   });
 
   it("replaces push and zoom transitions with subtle fades or dissolves", () => {
     expect(
-      applyTransitionPreference(
-        { type: "PUSH", duration: 0.45 },
-        true,
-        1,
-        8,
-      ).type,
+      applyTransitionPreference({ type: "PUSH", duration: 0.45 }, true, 1, 8)
+        .type,
     ).not.toBe("PUSH");
     expect(
-      applyTransitionPreference(
-        { type: "PUSH", duration: 0.45 },
-        true,
-        5,
-        8,
-      ).type,
+      applyTransitionPreference({ type: "PUSH", duration: 0.45 }, true, 5, 8)
+        .type,
     ).not.toBe("PUSH");
     expect(
-      applyTransitionPreference(
-        { type: "ZOOM", duration: 0.45 },
-        true,
-        2,
-        8,
-      ).type,
+      applyTransitionPreference({ type: "ZOOM", duration: 0.45 }, true, 2, 8)
+        .type,
     ).not.toBe("ZOOM");
   });
 });
@@ -193,6 +171,9 @@ describe("storyboard prompt", () => {
     });
 
     expect(prompt).toContain("21:9 ultrawide horizontal");
+    expect(prompt).toContain("non-negotiable visual style");
+    expect(prompt).toContain("stick figures");
+    expect(prompt).toContain("Never use photography");
   });
 
   it("keeps knowledge-board prompts at 21:9 even for legacy portrait input", () => {

@@ -16,11 +16,6 @@ import {
   type GenerateSceneImageInput,
 } from "../services/ai-image-provider";
 import { prepareKnowledgeBoardImage } from "../services/video-template-frame";
-import {
-  automaticVoiceIdempotencyKey,
-  groupScenesForContinuousVoice,
-  shouldQueueAutomaticVoice,
-} from "./automatic-voice";
 import { formatSceneImageGenerationFailure } from "./scene-image-errors";
 
 export interface SceneImageProvider {
@@ -33,6 +28,14 @@ export function getSceneImageAspectRatio(
   videoTemplate: VideoTemplate,
 ): GenerateSceneImageInput["aspectRatio"] {
   return videoTemplate === "KNOWLEDGE_BOARD" ? "WIDE" : projectAspectRatio;
+}
+
+export function applyVideoTemplateImageStyle(
+  prompt: string,
+  videoTemplate: VideoTemplate,
+): string {
+  if (videoTemplate !== "KNOWLEDGE_BOARD") return prompt;
+  return `${prompt}\n\n模板强制风格（最高优先级）：只生成黑白极简火柴人或简笔人物插画，人物必须是圆形头部、简单五官、细线身体和四肢，搭配少量手绘线条道具，使用纯白或极浅干净背景。禁止真人照片、摄影写实、真实人体比例、动漫人物、3D 渲染、复杂彩色场景、画面内文字、Logo 和水印。即使前面的提示词要求其他画风，也必须忽略冲突要求并保持火柴人风格。`;
 }
 
 export async function normalizeGeneratedSceneImage(
@@ -173,14 +176,15 @@ export function createSceneImageProcessor(
       videoTemplate,
     );
     const assetIds: string[] = [];
-    const referenceImageUrls = project.characterProfile
-      ? [
-          buildCharacterReferenceDataUrl(
-            project.characterProfile.asset.contentType,
-            await objectStore.get(project.characterProfile.asset.objectKey),
-          ),
-        ]
-      : undefined;
+    const referenceImageUrls =
+      videoTemplate !== "KNOWLEDGE_BOARD" && project.characterProfile
+        ? [
+            buildCharacterReferenceDataUrl(
+              project.characterProfile.asset.contentType,
+              await objectStore.get(project.characterProfile.asset.objectKey),
+            ),
+          ]
+        : undefined;
 
     // When the previous scene-image run for this revision failed partway, a
     // retry should reuse already-generated scenes and only fill in the gaps
@@ -233,7 +237,7 @@ export function createSceneImageProcessor(
       }
 
       const generated = await imageProvider.generate({
-        prompt: scene.visualPrompt,
+        prompt: applyVideoTemplateImageStyle(scene.visualPrompt, videoTemplate),
         aspectRatio: imageAspectRatio,
         accentColor: project.accentColor,
         imageSize: subtitleStyle.imageSize,
@@ -376,55 +380,7 @@ export function createSceneImageProcessor(
       await localJob.updateProgress(progress);
     }
 
-    const automaticVoiceJobIds: string[] = [];
     await prisma.$transaction(async (tx) => {
-      for (const voiceGroup of groupScenesForContinuousVoice(
-        project.scenes,
-      )) {
-        const scene = voiceGroup[0];
-        if (!scene) continue;
-        if (
-          !shouldQueueAutomaticVoice({
-            includeNarration: project.includeNarration,
-            voiceStyle: project.voiceStyle,
-            voiceProfileId: project.voiceProfileId,
-            hasVoiceTrack: voiceGroup.every(
-              (candidate) => candidate.voiceTracks.length > 0,
-            ),
-          })
-        ) {
-          continue;
-        }
-
-        const idempotencyKey = automaticVoiceIdempotencyKey(
-          scene.id,
-          scene.revision,
-          input.jobId,
-        );
-        const voiceJob = await tx.generationJob.upsert({
-          where: { idempotencyKey },
-          update: {},
-          create: {
-            projectId: project.id,
-            type: "VOICE",
-            status: "QUEUED",
-            projectRevision: input.projectRevision,
-            idempotencyKey,
-            input: { sceneId: scene.id },
-            events: {
-              create: {
-                status: "QUEUED",
-                progress: 0,
-                code: "VOICE_AUTO_QUEUED",
-                metadata: { sceneImageJobId: input.jobId },
-              },
-            },
-          },
-          select: { id: true },
-        });
-        automaticVoiceJobIds.push(voiceJob.id);
-      }
-
       await tx.generationJob.update({
         where: { id: input.jobId },
         data: {
@@ -433,7 +389,7 @@ export function createSceneImageProcessor(
           errorCode: null,
           errorMessage: null,
           finishedAt: new Date(),
-          output: { assetIds, automaticVoiceJobIds },
+          output: { assetIds },
           events: {
             create: {
               status: "SUCCEEDED",
@@ -442,7 +398,6 @@ export function createSceneImageProcessor(
               metadata: {
                 sceneCount: assetIds.length,
                 batchSize: sceneImageBatchSize,
-                automaticVoiceCount: automaticVoiceJobIds.length,
               },
             },
           },

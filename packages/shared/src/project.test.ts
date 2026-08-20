@@ -139,7 +139,7 @@ describe("createProjectSchema duration policy", () => {
         ...projectInput,
         subtitleStyle: {
           ...projectInput.subtitleStyle,
-        leftVerticalText: "无限进化的Jay",
+          leftVerticalText: "无限进化的Jay",
           rightVerticalText: "个人观点\n\n无不良引导",
           mainTitle: "自我突破",
         },
@@ -200,6 +200,30 @@ describe("createProjectSchema duration policy", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("accepts only landscape impact-caption projects", () => {
+    expect(() =>
+      createProjectSchema.parse({
+        ...projectInput,
+        aspectRatio: "LANDSCAPE",
+        subtitleStyle: {
+          ...projectInput.subtitleStyle,
+          videoTemplate: "IMPACT_CAPTIONS",
+        },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      createProjectSchema.parse({
+        ...projectInput,
+        aspectRatio: "PORTRAIT",
+        subtitleStyle: {
+          ...projectInput.subtitleStyle,
+          videoTemplate: "IMPACT_CAPTIONS",
+        },
+      }),
+    ).toThrow("爆点大字模板固定使用横屏比例");
   });
 
   it("rejects legacy targetDuration input", () => {

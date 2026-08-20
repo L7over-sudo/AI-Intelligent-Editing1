@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  automaticVoiceIdempotencyKey,
   groupScenesForContinuousVoice,
   shouldQueueAutomaticVoice,
 } from "./automatic-voice";
 
-describe("automatic voice generation", () => {
-  it("queues an unvoiced scene when a reusable voice profile is selected", () => {
+describe("automatic voice generation is disabled", () => {
+  it("never queues narration as a side effect of another job", () => {
     expect(
       shouldQueueAutomaticVoice({
         includeNarration: true,
@@ -15,15 +14,7 @@ describe("automatic voice generation", () => {
         voiceProfileId: "profile-1",
         hasVoiceTrack: false,
       }),
-    ).toBe(true);
-    expect(
-      shouldQueueAutomaticVoice({
-        includeNarration: true,
-        voiceStyle: "indextts2",
-        voiceProfileId: "profile-2",
-        hasVoiceTrack: false,
-      }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not queue disabled, unconfigured, or already generated audio", () => {
@@ -59,12 +50,6 @@ describe("automatic voice generation", () => {
         hasVoiceTrack: false,
       }),
     ).toBe(false);
-  });
-
-  it("uses a retry-safe key tied to the image job", () => {
-    expect(automaticVoiceIdempotencyKey("scene-1", 3, "image-job-1")).toBe(
-      "auto-voice:scene-1:3:image-job-1",
-    );
   });
 
   it("keeps comma-delimited visual scenes in one continuous speech group", () => {

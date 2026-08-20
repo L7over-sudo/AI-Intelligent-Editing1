@@ -18,7 +18,7 @@ export async function GET() {
     await ensureBuiltinVoiceProfiles(
       getPrisma(),
       user.id,
-      process.env.INDEXTTS_SERVICE_URL ?? "http://127.0.0.1:7851",
+      process.env.VOICE_SERVICE_URL,
     );
     const profiles = await getPrisma().voiceProfile.findMany({
       where: { ownerId: user.id },
@@ -39,7 +39,8 @@ export async function GET() {
             ? metadata.data.originalFileName
             : "参考声音",
           createdAt: profile.createdAt,
-          provider: metadata.success ? metadata.data.provider : "indextts2",
+          provider: metadata.success ? metadata.data.provider : "local-clone",
+          speaker: metadata.success ? metadata.data.speaker : undefined,
           builtin: metadata.success ? Boolean(metadata.data.builtin) : false,
           available: true,
         };
@@ -61,10 +62,10 @@ export async function POST(request: Request) {
     const objectKey =
       `users/${user.id}/voice-profiles/` + `${randomUUID()}.${safeExtension}`;
     const metadata = voiceCloneReferenceMetadataSchema.parse({
-      provider: "indextts2",
+      provider: input.provider,
       purpose: "voice-clone-reference",
       originalFileName: input.fileName,
-      serviceUrl: input.serviceUrl,
+      ...(input.serviceUrl ? { serviceUrl: input.serviceUrl } : {}),
       consentConfirmedAt: new Date().toISOString(),
     });
     const saved = await getPrisma().$transaction(async (tx) => {

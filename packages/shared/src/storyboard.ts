@@ -276,6 +276,19 @@ export function createStoryboardPrompt(input: {
           ? "9:16 vertical"
           : "16:9 horizontal"
     }.`,
+    ...(input.videoTemplate === "IMPACT_CAPTIONS"
+      ? [
+          "This is a text-led 16:9 video: every subtitle cue is revealed in sequence as large impact text, while earlier cues remain visible until the visual scene changes.",
+          "Cover the complete source in its original order. Use concise natural clauses so every important part of the full text appears on screen; never skip content merely to create sparse highlights.",
+          "Use strong contrast, question, answer, warning, or conclusion wording only where the source supports it; do not invent clickbait claims.",
+        ]
+      : []),
+    ...(input.videoTemplate === "KNOWLEDGE_BOARD"
+      ? [
+          "Knowledge Board has a non-negotiable visual style: every generated scene must use classic minimalist black-and-white stick figures with round heads, thin ink-line bodies and simple hand-drawn props on a clean white or very light background.",
+          "Never use photography, photorealistic people, realistic anatomy, anime characters, 3D renders or cinematic photo backgrounds for Knowledge Board, even if the user image prompt or a character reference requests them.",
+        ]
+      : []),
     `Narration and subtitles language: ${input.language}.`,
     `Visual style: minimalist black-and-white SVG stick figures with one accent color ${input.accentColor}.`,
     `User image prompt: ${input.imagePrompt}. Apply it consistently to every scene image.`,

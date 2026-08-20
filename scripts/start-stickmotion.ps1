@@ -116,19 +116,6 @@ function Start-StandaloneWeb {
 try {
   & (Join-Path $PSScriptRoot "start-search-bridge.ps1")
 
-  $indexTtsRoot = if ($env:INDEXTTS_HOME) {
-    $env:INDEXTTS_HOME
-  } else {
-    "D:\iwen-codex\IndexTTS2"
-  }
-  $indexTtsLauncher = Join-Path $indexTtsRoot "start-service.ps1"
-  if (Test-Path -LiteralPath $indexTtsLauncher -PathType Leaf) {
-    Write-Host "Starting IndexTTS2 local voice service..."
-    & $indexTtsLauncher
-  } else {
-    Write-Host "IndexTTS2 launcher not found at $indexTtsLauncher; voice generation will be unavailable." -ForegroundColor Yellow
-  }
-
   if (Test-WebReady) {
     Write-Host "StickMotion is already running."
     Open-StickMotion
@@ -143,7 +130,7 @@ try {
   $healthProcess = $existingProcess
 
   if (-not $existingProcess) {
-    Write-Host "Starting search, IndexTTS2, web, and worker..."
+    Write-Host "Starting search, web, and worker..."
     $runtimeBin = Join-Path $workDirectory "runtime-bin"
     $pnpmShim = Join-Path $runtimeBin "pnpm.cmd"
     New-Item -ItemType Directory -Path $runtimeBin -Force | Out-Null

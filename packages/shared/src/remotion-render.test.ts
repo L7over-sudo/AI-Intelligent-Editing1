@@ -30,6 +30,15 @@ describe("remotion render input", () => {
     expect(remotionRenderInputSchema.parse(validInput).fps).toBe(30);
   });
 
+  it("accepts the impact-caption render template", () => {
+    expect(
+      remotionRenderInputSchema.parse({
+        ...validInput,
+        videoTemplate: "IMPACT_CAPTIONS",
+      }).videoTemplate,
+    ).toBe("IMPACT_CAPTIONS");
+  });
+
   it("validates narration and background music volume independently", () => {
     const parsed = remotionRenderInputSchema.parse({
       ...validInput,

@@ -2,24 +2,32 @@ import { z } from "zod";
 
 export const voiceCloneLanguageSchema = z.enum(["zh", "en", "ja", "ko", "yue"]);
 
-export const localVoiceServiceUrlSchema = z
+export const voiceProviderSchema = z.enum([
+  "indextts2",
+  "local-clone",
+  "qwen3-tts-clone",
+  "qwen3-tts-custom",
+]);
+
+export type VoiceProvider = z.infer<typeof voiceProviderSchema>;
+
+export const voiceServiceUrlSchema = z
   .string()
   .trim()
   .url()
   .max(200)
   .superRefine((value, context) => {
     const url = new URL(value);
-    const localHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-    if (url.protocol !== "http:" || !localHosts.has(url.hostname)) {
+    if (!new Set(["http:", "https:"]).has(url.protocol)) {
       context.addIssue({
         code: "custom",
-        message: "IndexTTS2 服务地址只能使用本机 HTTP 地址",
+        message: "配音服务地址只能使用 HTTP 或 HTTPS",
       });
     }
-    if (url.username || url.password || url.pathname !== "/" || url.search) {
+    if (url.username || url.password) {
       context.addIssue({
         code: "custom",
-        message: "IndexTTS2 服务地址只能包含主机和端口",
+        message: "配音服务地址不能包含账号或密码",
       });
     }
   })
@@ -38,57 +46,40 @@ const voiceCloneUploadBaseSchema = z.object({
     "audio/flac",
     "audio/x-flac",
   ]),
-  byteSize: z.number().int().positive(),
+  byteSize: z
+    .number()
+    .int()
+    .positive()
+    .max(200 * 1024 * 1024),
   consentConfirmed: z.literal(true),
 });
 
-const indexTTSVoiceCloneUploadSchema = voiceCloneUploadBaseSchema
+const genericVoiceCloneUploadSchema = voiceCloneUploadBaseSchema
   .extend({
-    provider: z.literal("indextts2"),
-    serviceUrl: localVoiceServiceUrlSchema,
-    byteSize: z
-      .number()
-      .int()
-      .positive()
-      .max(200 * 1024 * 1024),
+    provider: voiceProviderSchema.default("qwen3-tts-clone"),
+    serviceUrl: voiceServiceUrlSchema.optional(),
   })
   .strict();
 
-export const voiceCloneUploadSchema = z.preprocess(
-  (value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return value;
-    }
-    const record = value as Record<string, unknown>;
-    return record.provider ? record : { ...record, provider: "indextts2" };
-  },
-  indexTTSVoiceCloneUploadSchema,
-);
+export const voiceCloneUploadSchema = genericVoiceCloneUploadSchema;
 
-const indexTTSVoiceCloneReferenceMetadataSchema = z
+const genericVoiceCloneReferenceMetadataSchema = z
   .object({
-    provider: z.literal("indextts2"),
+    provider: voiceProviderSchema.default("local-clone"),
     purpose: z.literal("voice-clone-reference"),
     originalFileName: z.string().min(1).max(180),
     builtin: z.boolean().optional(),
-    // Accepted only for compatibility with profiles created by VoxCPM2.
+    speaker: z.string().trim().min(1).max(80).optional(),
+    // Accepted for compatibility with older voice-profile records.
     promptText: z.string().max(1000).optional(),
     promptLanguage: voiceCloneLanguageSchema.optional(),
-    serviceUrl: localVoiceServiceUrlSchema,
+    serviceUrl: voiceServiceUrlSchema.optional(),
     consentConfirmedAt: z.string().datetime(),
   })
   .strict();
 
-export const voiceCloneReferenceMetadataSchema = z.preprocess(
-  (value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return value;
-    }
-    const record = value as Record<string, unknown>;
-    return record.provider ? record : { ...record, provider: "indextts2" };
-  },
-  indexTTSVoiceCloneReferenceMetadataSchema,
-);
+export const voiceCloneReferenceMetadataSchema =
+  genericVoiceCloneReferenceMetadataSchema;
 
 export type VoiceCloneReferenceMetadata = z.infer<
   typeof voiceCloneReferenceMetadataSchema

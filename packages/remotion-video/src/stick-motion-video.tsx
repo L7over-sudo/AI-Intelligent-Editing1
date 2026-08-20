@@ -27,6 +27,11 @@ import {
   calculateTransitionDurationInFrames,
 } from "./timing";
 import { narrationVolumeAtFrame } from "./audio-envelope";
+import {
+  buildVisibleImpactCaptionLines,
+  impactCaptionTone,
+  type ImpactCaptionTone,
+} from "./impact-captions";
 
 type Scene = RemotionRenderInput["scenes"][number];
 
@@ -260,12 +265,7 @@ const NarrationAudio = ({
   );
   const volume =
     narrationVolumeAtFrame(frame, durationInFrames, fps) * narrationVolume;
-  return (
-    <Audio
-      src={staticFile(scene.voiceFile)}
-      volume={volume}
-    />
-  );
+  return <Audio src={staticFile(scene.voiceFile)} volume={volume} />;
 };
 
 const SceneAudioLayers = ({
@@ -278,11 +278,7 @@ const SceneAudioLayers = ({
   narrationVolume: number;
 }) => (
   <>
-    <NarrationAudio
-      scene={scene}
-      fps={fps}
-      narrationVolume={narrationVolume}
-    />
+    <NarrationAudio scene={scene} fps={fps} narrationVolume={narrationVolume} />
     {scene.soundEffects.map((effect, index) => (
       <Sequence
         key={`${effect.file}-${effect.offsetMs}-${index}`}
@@ -569,14 +565,14 @@ const KnowledgeBoardChrome = ({
             letterSpacing: "0.01em",
           }}
         >
-            <span
-              style={{
-                maxWidth: layout.subtitle.maxWidth,
-                display: "inline-block",
-                whiteSpace: "nowrap",
-                ...subtitleAppearance(
-                  { ...subtitleStyle, shadow: false },
-                  "#FFFFFF",
+          <span
+            style={{
+              maxWidth: layout.subtitle.maxWidth,
+              display: "inline-block",
+              whiteSpace: "nowrap",
+              ...subtitleAppearance(
+                { ...subtitleStyle, shadow: false },
+                "#FFFFFF",
               ),
             }}
           >
@@ -599,6 +595,303 @@ const KnowledgeBoardChrome = ({
         </div>
       ) : null}
     </AbsoluteFill>
+  );
+};
+
+function impactCaptionAppearance(tone: ImpactCaptionTone): CSSProperties {
+  if (tone === "RED") {
+    return {
+      color: "#F31348",
+      WebkitTextStroke: "7px #FFFFFF",
+      paintOrder: "stroke fill",
+      textShadow: "0 8px 0 #111111, 0 13px 20px rgba(0,0,0,.72)",
+    };
+  }
+  return {
+    color: tone === "YELLOW" ? "#FFE100" : "#FFFFFF",
+    WebkitTextStroke: "9px #101010",
+    paintOrder: "stroke fill",
+    textShadow: "0 10px 20px rgba(0,0,0,.72)",
+  };
+}
+
+function impactCaptionFontSize(
+  width: number,
+  height: number,
+  line: string,
+): number {
+  const characterCount = Math.max(1, Array.from(line).length);
+  return Math.max(
+    58,
+    Math.min(
+      Math.round(height * 0.105),
+      Math.floor((width * 0.76) / (characterCount * 0.94)),
+    ),
+  );
+}
+
+const ImpactCaptionOverlay = ({
+  scene,
+  frame,
+  durationInFrames,
+  fps,
+}: {
+  scene: Scene;
+  frame: number;
+  durationInFrames: number;
+  fps: number;
+}) => {
+  const { width, height } = useVideoConfig();
+  const currentMs = (frame / fps) * 1_000;
+  const lines = buildVisibleImpactCaptionLines(
+    scene.subtitleCues,
+    currentMs,
+  );
+  if (lines.length === 0) return null;
+  const newestLineStartFrame = Math.round(
+    ((lines.at(-1)?.startMs ?? 0) / 1_000) * fps,
+  );
+  const beatFrame = Math.max(0, frame - newestLineStartFrame);
+  const exitStart = Math.max(0, durationInFrames - Math.round(fps * 0.22));
+  const exitOpacity = interpolate(
+    frame,
+    [exitStart, Math.max(exitStart + 1, durationInFrames - 1)],
+    [1, 0],
+    clamp,
+  );
+  const echoOpacity = interpolate(
+    beatFrame,
+    [
+      0,
+      Math.max(1, Math.round(fps * 0.07)),
+      Math.max(2, Math.round(fps * 0.3)),
+    ],
+    [0, 0.34, 0],
+    clamp,
+  );
+  const echoScale = interpolate(
+    beatFrame,
+    [0, Math.max(1, Math.round(fps * 0.3))],
+    [2.45, 1.1],
+    clamp,
+  );
+  const slashProgress = interpolate(
+    beatFrame,
+    [0, Math.max(1, Math.round(fps * 0.22))],
+    [0, 1],
+    clamp,
+  );
+
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none", opacity: exitOpacity }}>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(180deg, rgba(0,0,0,.16) 0%, rgba(0,0,0,.03) 58%, rgba(0,0,0,.42) 100%)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: "7%",
+          top: "28%",
+          width: `${slashProgress * 86}%`,
+          height: Math.max(8, Math.round(height * 0.012)),
+          backgroundColor: "#FFE100",
+          opacity: interpolate(
+            slashProgress,
+            [0, 0.55, 1],
+            [0, 0.72, 0],
+            clamp,
+          ),
+          transform: "skewX(-18deg)",
+          transformOrigin: "left center",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: "4%",
+          right: "4%",
+          top: "14%",
+          bottom: "27%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: Math.round(height * 0.012),
+          opacity: echoOpacity,
+          transform: `scale(${echoScale})`,
+          filter: "blur(1.2px)",
+          overflow: "hidden",
+        }}
+      >
+        {lines.slice(-2).map((line, lineIndex) => (
+          <div
+            key={`echo-${line.sequence}-${line.text}`}
+            style={{
+              fontFamily:
+                '"DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+              fontSize: impactCaptionFontSize(width, height, line.text),
+              fontWeight: 900,
+              lineHeight: 1.03,
+              whiteSpace: "nowrap",
+              ...impactCaptionAppearance(lineIndex === 0 ? "YELLOW" : "WHITE"),
+            }}
+          >
+            {line.text}
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: "5%",
+          right: "5%",
+          top: "13%",
+          bottom: "27%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: Math.round(height * 0.012),
+          textAlign: "center",
+        }}
+      >
+        {lines.map((line) => {
+          const lineFrame =
+            frame - Math.round((line.startMs / 1_000) * fps);
+          const entrance = spring({
+            frame: Math.max(0, lineFrame),
+            fps,
+            config: { damping: 13, mass: 0.46, stiffness: 245 },
+            durationInFrames: Math.max(12, Math.round(fps * 0.58)),
+          });
+          const lineOpacity =
+            lineFrame < 0
+              ? 0
+              : interpolate(
+                  lineFrame,
+                  [0, Math.max(1, fps * 0.12)],
+                  [0, 1],
+                  clamp,
+                );
+          return (
+            <div
+              key={`${line.sequence}-${line.text}`}
+              style={{
+                fontFamily:
+                  '"DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+                fontSize: impactCaptionFontSize(width, height, line.text),
+                fontWeight: 900,
+                lineHeight: 1.03,
+                letterSpacing: "-0.025em",
+                whiteSpace: "nowrap",
+                opacity: lineOpacity,
+                transform: `translateY(${(1 - entrance) * 18}px) scale(${0.58 + entrance * 0.42}) rotate(${(1 - entrance) * (line.sequence % 2 === 0 ? -1.5 : 1.5)}deg)`,
+                transformOrigin: "center center",
+                ...impactCaptionAppearance(
+                  impactCaptionTone(line.text, line.sequence),
+                ),
+              }}
+            >
+              {line.text}
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+const ImpactBottomCaption = ({
+  activeCue,
+  frame,
+  fps,
+}: {
+  activeCue: Scene["subtitleCues"][number];
+  frame: number;
+  fps: number;
+}) => {
+  const { width, height } = useVideoConfig();
+  const cueStartFrame = Math.round((activeCue.startMs / 1_000) * fps);
+  const cueFrame = Math.max(0, frame - cueStartFrame);
+  const entrance = spring({
+    frame: cueFrame,
+    fps,
+    config: { damping: 18, mass: 0.42, stiffness: 230 },
+    durationInFrames: Math.max(10, Math.round(fps * 0.35)),
+  });
+  const baseFontSize = Math.min(56, Math.round(height * 0.052));
+  const chineseFontSize = Math.max(
+    30,
+    Math.min(
+      baseFontSize,
+      Math.floor(
+        (width * 0.82) /
+          (Math.max(1, Array.from(activeCue.text).length) * 0.92),
+      ),
+    ),
+  );
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "5%",
+        right: "5%",
+        bottom: activeCue.translation ? "4.4%" : "5.5%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: Math.round(height * 0.005),
+        textAlign: "center",
+        opacity: interpolate(
+          cueFrame,
+          [0, Math.max(1, fps * 0.08)],
+          [0, 1],
+          clamp,
+        ),
+        transform: `translateY(${(1 - entrance) * 10}px) scale(${0.96 + entrance * 0.04})`,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "92%",
+          color: "#FFFFFF",
+          fontFamily:
+            '"DouyinSansBold", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+          fontSize: chineseFontSize,
+          fontWeight: 900,
+          lineHeight: 1.05,
+          letterSpacing: "0.01em",
+          whiteSpace: "nowrap",
+          WebkitTextStroke: `${Math.max(4, Math.round(height * 0.0055))}px #111111`,
+          paintOrder: "stroke fill",
+          textShadow: "0 5px 12px rgba(0,0,0,.75)",
+        }}
+      >
+        {activeCue.text}
+      </div>
+      {activeCue.translation ? (
+        <div
+          style={{
+            maxWidth: "90%",
+            color: "rgba(255,255,255,.94)",
+            fontFamily:
+              '"HarmonyOS Sans SC Light", "Microsoft YaHei", sans-serif',
+            fontSize: Math.max(22, Math.round(chineseFontSize * 0.48)),
+            fontWeight: 500,
+            lineHeight: 1.1,
+            textShadow: "0 2px 5px rgba(0,0,0,.95)",
+          }}
+        >
+          {activeCue.translation}
+        </div>
+      ) : null}
+    </div>
   );
 };
 
@@ -783,7 +1076,17 @@ const SceneLayer = ({
         }}
       />
       {audioLayers}
-      {activeCue ? (
+      {videoTemplate === "IMPACT_CAPTIONS" ? (
+        <ImpactCaptionOverlay
+          scene={scene}
+          frame={frame}
+          durationInFrames={durationInFrames}
+          fps={fps}
+        />
+      ) : null}
+      {activeCue && videoTemplate === "IMPACT_CAPTIONS" ? (
+        <ImpactBottomCaption activeCue={activeCue} frame={frame} fps={fps} />
+      ) : activeCue ? (
         <div
           style={{
             position: "absolute",
@@ -856,9 +1159,7 @@ export const StickMotionVideo = (rawProps: RemotionRenderInput) => {
     timeline.push(
       <TransitionSeries.Sequence
         key={`scene-${index}`}
-        durationInFrames={
-          sceneDurationInFrames + outgoingTransition
-        }
+        durationInFrames={sceneDurationInFrames + outgoingTransition}
       >
         {knowledgeBoard ? (
           <KnowledgeBoardMedia

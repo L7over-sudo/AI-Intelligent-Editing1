@@ -61,6 +61,8 @@ import { resolveRenderAnimation } from "./render-animation";
 const cleanError = (error: unknown) =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
 
+export const RENDER_FPS = 30;
+
 function mediaExtension(contentType: string): string {
   if (contentType.includes("mpeg")) return ".mp3";
   if (contentType.includes("mp4") || contentType.includes("m4a")) return ".m4a";
@@ -71,10 +73,7 @@ function mediaExtension(contentType: string): string {
 
 const sentenceEndingPattern = /[。！？!?…][”’"'）)\]】》〉]*$/u;
 
-function trimStoredVoiceTail(
-  audio: Uint8Array,
-  narration: string,
-): Uint8Array {
+function trimStoredVoiceTail(audio: Uint8Array, narration: string): Uint8Array {
   const durationMs = wavDurationMs(audio);
   const trailingMs = pcmWavTrailingSilenceMs(audio) ?? 0;
   const maximumTailMs = sentenceEndingPattern.test(narration.trim())
@@ -100,7 +99,6 @@ function assetMatchesRevision(
     candidate.sceneRevision === sceneRevision
   );
 }
-
 
 export function createRenderProcessor(
   objectStore = new LocalObjectStore(),
@@ -219,8 +217,7 @@ export function createRenderProcessor(
           ),
         }))
         .find((candidate) => candidate.metadata !== undefined);
-      const continuousNarrationMetadata =
-        continuousNarrationAsset?.metadata;
+      const continuousNarrationMetadata = continuousNarrationAsset?.metadata;
       const useStoredContinuousNarration =
         project.includeNarration &&
         continuousNarrationAsset !== undefined &&
@@ -368,10 +365,7 @@ export function createRenderProcessor(
           } else if (voiceTrack.durationMs && voiceTrack.durationMs > 0) {
             sceneDurationMs = Math.max(300, voiceTrack.durationMs);
           }
-          if (
-            !continuousSceneDurationMs &&
-            index < project.scenes.length - 1
-          ) {
+          if (!continuousSceneDurationMs && index < project.scenes.length - 1) {
             // TTS clips already end with a short tail, so this only
             // adds room after true sentence endings; comma clause breaks
             // keep their natural flow.
@@ -607,7 +601,7 @@ export function createRenderProcessor(
         soundEffects,
         width,
         height,
-        fps: 60,
+        fps: RENDER_FPS,
         watermark: input.watermark,
         filterScriptPath,
         ...(process.env.FFMPEG_FONT_FILE
@@ -626,7 +620,7 @@ export function createRenderProcessor(
       const remotionPlan: RemotionRenderInput = {
         width,
         height,
-        fps: 60,
+        fps: RENDER_FPS,
         scenes: narrationFile
           ? remotionScenes.map((scene) => ({ ...scene, voiceFile: undefined }))
           : remotionScenes,
@@ -728,9 +722,7 @@ export function createRenderProcessor(
         await ffmpegRunner(
           command.args,
           (outTimeMs) =>
-            reportRenderProgress(
-              outTimeMs / (command.durationSeconds * 1_000),
-            ),
+            reportRenderProgress(outTimeMs / (command.durationSeconds * 1_000)),
           abortController.signal,
         );
       }
@@ -834,11 +826,7 @@ export function createRenderProcessor(
               }),
           events: {
             create: {
-              status: canceled
-                ? "CANCELED"
-                : willRetry
-                  ? "RETRYING"
-                  : "FAILED",
+              status: canceled ? "CANCELED" : willRetry ? "RETRYING" : "FAILED",
               progress: 0,
               code: canceled ? "RENDER_CANCELED" : "RENDER_FAILED",
               message: canceled ? "渲染已取消" : cleanError(error),

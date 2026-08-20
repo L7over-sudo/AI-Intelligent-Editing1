@@ -2,6 +2,7 @@
 import sharp from "sharp";
 
 import {
+  applyVideoTemplateImageStyle,
   batchSceneImages,
   buildCharacterReferenceDataUrl,
   getSceneImageAspectRatio,
@@ -10,18 +11,18 @@ import {
 
 describe("scene image batching", () => {
   it("groups scenes into batches of six while preserving order", () => {
-    expect(batchSceneImages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])).toEqual([
-      [1, 2, 3, 4, 5, 6],
-      [7, 8, 9, 10, 11, 12],
-      [13],
-    ]);
+    expect(
+      batchSceneImages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]),
+    ).toEqual([[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], [13]]);
   });
 
   it("never runs more than six scene tasks at once", async () => {
     let active = 0;
     let maximumActive = 0;
 
-    for (const batch of batchSceneImages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])) {
+    for (const batch of batchSceneImages([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    ])) {
       await Promise.all(
         batch.map(async () => {
           active += 1;
@@ -50,6 +51,19 @@ describe("scene image batching", () => {
     );
     expect(getSceneImageAspectRatio("PORTRAIT", "KNOWLEDGE_BOARD")).toBe(
       "WIDE",
+    );
+  });
+
+  it("forces knowledge-board image generation to use stick figures", () => {
+    const prompt = applyVideoTemplateImageStyle(
+      "cinematic photorealistic office portrait",
+      "KNOWLEDGE_BOARD",
+    );
+    expect(prompt).toContain("火柴人");
+    expect(prompt).toContain("最高优先级");
+    expect(prompt).toContain("禁止真人照片");
+    expect(applyVideoTemplateImageStyle("cinematic office", "FULL_BLEED")).toBe(
+      "cinematic office",
     );
   });
 

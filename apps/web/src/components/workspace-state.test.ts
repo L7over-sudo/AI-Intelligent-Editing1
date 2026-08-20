@@ -13,6 +13,11 @@ describe("workspace state storage", () => {
         JSON.stringify({ view: "export", selectedProjectId: "project-1" }),
       ),
     ).toEqual({ view: "export", selectedProjectId: "project-1" });
+    expect(
+      parseStoredWorkspaceState(
+        JSON.stringify({ view: "templates", selectedProjectId: "" }),
+      ),
+    ).toEqual({ view: "templates", selectedProjectId: "" });
   });
 
   it("rejects malformed workspace state", () => {

@@ -42,7 +42,8 @@ export async function PATCH(
           ? metadata.data.originalFileName
           : "参考声音",
         createdAt: updated.createdAt,
-        provider: "indextts2",
+        provider: metadata.success ? metadata.data.provider : "local-clone",
+        speaker: metadata.success ? metadata.data.speaker : undefined,
         builtin: false,
         available: true,
       },

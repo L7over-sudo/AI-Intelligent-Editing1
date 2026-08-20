@@ -72,10 +72,10 @@ export async function POST(
     const objectKey =
       `users/${user.id}/voice-profiles/` + `${randomUUID()}.${safeExtension}`;
     const metadata = voiceCloneReferenceMetadataSchema.parse({
-      provider: "indextts2",
+      provider: input.provider,
       purpose: "voice-clone-reference",
       originalFileName: input.fileName,
-      serviceUrl: input.serviceUrl,
+      ...(input.serviceUrl ? { serviceUrl: input.serviceUrl } : {}),
       consentConfirmedAt: new Date().toISOString(),
     });
 
@@ -103,7 +103,7 @@ export async function POST(
       await tx.project.update({
         where: { id: projectId },
         data: {
-          voiceStyle: "indextts2",
+          voiceStyle: input.provider,
           voiceProfileId: profile.id,
         },
       });

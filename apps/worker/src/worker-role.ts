@@ -32,7 +32,7 @@ export function allowedJobTypesForRole(
 }
 
 /**
- * IndexTTS2 owns one model instance, so only one VOICE job may be claimed at
+ * The local voice service owns one shared model instance, so only one VOICE job may be claimed at
  * a time across the local workers.
  */
 export function voiceClaimAvailable(runningVoiceJobs: number): boolean {

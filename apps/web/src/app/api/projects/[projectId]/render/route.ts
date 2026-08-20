@@ -9,6 +9,8 @@ import { enqueueRender } from "@stickmotion/queue";
 import { getCurrentUser } from "@/server/auth";
 import { apiError } from "@/server/http";
 
+// Render submission stays in the web process; FFmpeg work is consumed by the
+// dedicated render Worker through the persisted local queue.
 const renderRequestSchema = z
   .object({
     watermark: z.string().max(80).default(""),

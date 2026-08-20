@@ -25,7 +25,7 @@ const defaultRunner: VoiceOutputCleanupRunner = async (
 ) => execFileAsync(executable, [...args], options);
 
 /**
- * Removes IndexTTS high-frequency artifacts and residual low-level hiss while
+ * Removes provider high-frequency artifacts and residual low-level hiss while
  * keeping the PCM timeline unchanged. The gate is deliberately after the
  * spectral denoiser so it only closes genuinely quiet gaps, not consonants.
  */
@@ -61,7 +61,7 @@ export async function cleanVoiceOutputAudio(
   audio: Uint8Array,
   dependencies: { run?: VoiceOutputCleanupRunner } = {},
 ): Promise<Uint8Array> {
-  if (audio.byteLength === 0) throw new Error("INDEXTTS_AUDIO_INVALID");
+  if (audio.byteLength === 0) throw new Error("VOICE_AUDIO_INVALID");
   const workspace = await mkdtemp(
     path.join(tmpdir(), "stickmotion-voice-output-"),
   );
@@ -80,14 +80,14 @@ export async function cleanVoiceOutputAudio(
     );
     const cleaned = new Uint8Array(await readFile(outputPath));
     if (cleaned.byteLength < 44) {
-      throw new Error("INDEXTTS_AUDIO_INVALID");
+      throw new Error("VOICE_AUDIO_INVALID");
     }
     return cleaned;
   } catch (error) {
-    if (error instanceof Error && error.message === "INDEXTTS_AUDIO_INVALID") {
+    if (error instanceof Error && error.message === "VOICE_AUDIO_INVALID") {
       throw error;
     }
-    throw new Error("INDEXTTS_AUDIO_CLEANUP_FAILED", { cause: error });
+    throw new Error("VOICE_AUDIO_CLEANUP_FAILED", { cause: error });
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

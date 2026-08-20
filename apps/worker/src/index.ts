@@ -108,7 +108,7 @@ async function claimNextJob() {
   });
   if (!candidate) return undefined;
 
-  // The two media workers share one IndexTTS2 model. Keep voice claims
+  // The two media workers share one local voice-service slot. Keep voice claims
   // single-file even when both workers race on the same SQLite queue. The
   // NOT EXISTS guard is part of the UPDATE so a stale count/findFirst pair
   // cannot let both workers enter synthesis concurrently.

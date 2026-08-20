@@ -4,6 +4,7 @@ export const workspaceViewSchema = z.enum([
   "create",
   "projects",
   "cover",
+  "templates",
   "chat",
   "search",
   "storyboard",

@@ -66,6 +66,9 @@ describe("LocalStoryboardProvider", () => {
     const prompt = storyboard.scenes[0]?.visualPrompt ?? "";
     expect(prompt).toContain("21:9");
     expect(prompt).not.toContain("16:9");
+    expect(prompt).toContain("固定风格");
+    expect(prompt).toContain("火柴人");
+    expect(prompt).toContain("禁止真人");
   });
 
   it("does not merge short sentences to reduce the scene count", async () => {

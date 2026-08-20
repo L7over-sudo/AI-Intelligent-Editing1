@@ -1,21 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  localVoiceServiceUrlSchema,
+  voiceCloneReferenceMetadataSchema,
   voiceCloneUploadSchema,
+  voiceServiceUrlSchema,
 } from "./voice-clone";
 
 describe("voice clone schemas", () => {
-  it("accepts only a loopback IndexTTS2 service", () => {
-    expect(localVoiceServiceUrlSchema.parse("http://127.0.0.1:9880")).toBe(
+  it("accepts an HTTP or HTTPS voice service", () => {
+    expect(voiceServiceUrlSchema.parse("http://127.0.0.1:9880")).toBe(
       "http://127.0.0.1:9880",
     );
-    expect(() =>
-      localVoiceServiceUrlSchema.parse("https://example.com"),
-    ).toThrow();
-    expect(() =>
-      localVoiceServiceUrlSchema.parse("http://192.168.1.20:9880"),
-    ).toThrow();
+    expect(voiceServiceUrlSchema.parse("https://example.com/voice")).toBe(
+      "https://example.com/voice",
+    );
+    expect(() => voiceServiceUrlSchema.parse("ftp://example.com")).toThrow();
   });
 
   it("requires explicit voice ownership consent", () => {
@@ -25,23 +24,34 @@ describe("voice clone schemas", () => {
         fileName: "voice.wav",
         contentType: "audio/wav",
         byteSize: 1024,
-        serviceUrl: "http://localhost:9880",
+        serviceUrl: "https://example.com/voice",
         consentConfirmed: false,
       }),
     ).toThrow();
   });
 
   it("accepts a one-minute high-fidelity reference upload", () => {
-    expect(
-      voiceCloneUploadSchema.parse({
-        profileName: "一分钟声音",
-        fileName: "one-minute.wav",
-        contentType: "audio/wav",
-        byteSize: 50 * 1024 * 1024,
-        serviceUrl: "http://127.0.0.1:9880",
-        consentConfirmed: true,
-      }).byteSize,
-    ).toBe(50 * 1024 * 1024);
+    const parsed = voiceCloneUploadSchema.parse({
+      profileName: "一分钟声音",
+      fileName: "one-minute.wav",
+      contentType: "audio/wav",
+      byteSize: 50 * 1024 * 1024,
+      serviceUrl: "https://example.com/voice",
+      consentConfirmed: true,
+    });
+    expect(parsed.byteSize).toBe(50 * 1024 * 1024);
+    expect(parsed.provider).toBe("qwen3-tts-clone");
   });
 
+  it("keeps the Qwen built-in speaker in reference metadata", () => {
+    const metadata = voiceCloneReferenceMetadataSchema.parse({
+      provider: "qwen3-tts-custom",
+      purpose: "voice-clone-reference",
+      originalFileName: "vivian.wav",
+      builtin: true,
+      speaker: "Vivian",
+      consentConfirmedAt: "2026-08-19T00:00:00.000Z",
+    });
+    expect(metadata.speaker).toBe("Vivian");
+  });
 });

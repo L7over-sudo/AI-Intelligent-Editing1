@@ -25,7 +25,7 @@ describe("voice output cleanup", () => {
     const run = vi.fn(() => Promise.resolve());
     await expect(
       cleanVoiceOutputAudio(new Uint8Array([1, 2, 3]), { run }),
-    ).rejects.toThrow("INDEXTTS_AUDIO_CLEANUP_FAILED");
+    ).rejects.toThrow("VOICE_AUDIO_CLEANUP_FAILED");
     expect(run).toHaveBeenCalledTimes(1);
   });
 

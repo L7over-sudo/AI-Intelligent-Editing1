@@ -1,6 +1,6 @@
 # StickMotion 单机本地版
 
-StickMotion 是一个运行在本机的火柴人短视频生成网站。输入主题或完整文案后，系统通过独立 Worker 异步生成脚本、分镜、SVG 画面、AI 配音、字幕和 1080P MP4。
+StickMotion 是一个运行在本机的火柴人短视频生成网站。输入主题或完整文案后，系统通过独立 Worker 异步生成脚本、分镜、SVG 画面、字幕和 1080P MP4。
 
 ## 本地架构
 
@@ -18,7 +18,7 @@ StickMotion 是一个运行在本机的火柴人短视频生成网站。输入�
 - Node.js 22+
 - pnpm 11+
 - FFmpeg
-- OpenAI API 密钥（脚本、AI 生图、配音和转录需要）
+- OpenAI API 密钥（脚本和 AI 生图需要）
 
 ## 安装和启动
 
@@ -109,6 +109,6 @@ pnpm build
 
 集成测试会使用真实 FFmpeg 生成短 MP4，外部 OpenAI 调用使用受控替身或不参与该测试。Remotion 冒烟测试会在 `storage/media/remotion-smoke.mp4` 生成一个带动画、转场和逐句字幕的短视频。
 
-## 本机声音克隆
+## 配音
 
-声音克隆使用本机 IndexTTS2，安装、启动和页面使用方法见 [`docs/INDEXTTS.md`](docs/INDEXTTS.md)。
+配音通过通用配音服务和独立 Worker 任务生成。旧的本机配音服务已移除，但项目、音色、配音任务和新配音模型的接入链路会继续保留。

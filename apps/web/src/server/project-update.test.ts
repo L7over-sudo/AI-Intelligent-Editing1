@@ -27,7 +27,7 @@ describe("projectUpdateInputSchema", () => {
     ).toThrow();
   });
 
-  it.each(["indextts2"] as const)(
+  it.each(["local-clone", "new-voice-model"] as const)(
     "accepts a saved %s voice profile",
     (voiceStyle) => {
       expect(
@@ -42,7 +42,7 @@ describe("projectUpdateInputSchema", () => {
   it("rejects cloned voices without a saved profile", () => {
     expect(() =>
       projectUpdateInputSchema.parse({
-        voiceStyle: "indextts2",
+        voiceStyle: "new-voice-model",
         voiceProfileId: null,
       }),
     ).toThrow();

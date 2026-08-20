@@ -178,3 +178,123 @@ body {
     opacity: 1;
   }
 }
+
+@keyframes template-preview-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.72);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes template-preview-rise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes template-preview-board {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes template-preview-pan {
+  0% {
+    transform: scale(1.04) translate3d(-1.2%, 0, 0);
+  }
+  100% {
+    transform: scale(1.12) translate3d(1.2%, -0.7%, 0);
+  }
+}
+
+@keyframes template-preview-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.template-preview-knowledge-title {
+  opacity: 0;
+  animation: template-preview-rise 0.7s 0.15s ease-out forwards;
+}
+
+.template-preview-knowledge-board {
+  opacity: 0;
+  animation: template-preview-board 0.8s 0.65s ease-out forwards;
+}
+
+.template-preview-knowledge-subtitle {
+  opacity: 0;
+  animation: template-preview-pop 0.65s 1.5s cubic-bezier(0.2, 0.85, 0.25, 1.15) forwards;
+}
+
+.template-preview-impact-line-one {
+  opacity: 0;
+  animation: template-preview-pop 0.7s 0.25s cubic-bezier(0.2, 0.85, 0.25, 1.15) forwards;
+}
+
+.template-preview-impact-line-two {
+  opacity: 0;
+  animation: template-preview-pop 0.72s 1.25s cubic-bezier(0.2, 0.85, 0.25, 1.15) forwards;
+}
+
+.template-preview-impact-caption {
+  opacity: 0;
+  animation: template-preview-rise 0.6s 2.15s ease-out forwards;
+}
+
+.template-preview-full-pan {
+  animation: template-preview-pan 6s ease-in-out forwards;
+}
+
+.template-preview-full-subtitle {
+  opacity: 0;
+  animation: template-preview-rise 0.7s 1s ease-out forwards;
+}
+
+.template-preview-progress {
+  animation: template-preview-progress 6s linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .template-preview-knowledge-title,
+  .template-preview-knowledge-board,
+  .template-preview-knowledge-subtitle,
+  .template-preview-impact-line-one,
+  .template-preview-impact-line-two,
+  .template-preview-impact-caption,
+  .template-preview-full-pan,
+  .template-preview-full-subtitle,
+  .template-preview-progress {
+    opacity: 1;
+    animation: none;
+    transform: none;
+  }
+
+  .template-preview-progress {
+    width: 100%;
+  }
+}

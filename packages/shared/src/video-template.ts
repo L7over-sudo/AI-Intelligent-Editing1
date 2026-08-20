@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export const videoTemplateSchema = z.enum(["FULL_BLEED", "KNOWLEDGE_BOARD"]);
+export const videoTemplateSchema = z.enum([
+  "FULL_BLEED",
+  "KNOWLEDGE_BOARD",
+  "IMPACT_CAPTIONS",
+]);
 
 export type VideoTemplate = z.infer<typeof videoTemplateSchema>;
 
@@ -41,8 +45,7 @@ export function getKnowledgeBoardHeaderDecorationLayout(
   const letterSpacing = fontSize * KNOWLEDGE_BOARD_HEADER_LETTER_SPACING_EM;
   const estimatedTextWidth = Math.min(
     width * 0.68,
-    characters * fontSize * 0.92 +
-      Math.max(0, characters - 1) * letterSpacing,
+    characters * fontSize * 0.92 + Math.max(0, characters - 1) * letterSpacing,
   );
   const dashWidth = Math.max(4, Math.round(width * 0.017));
   const gap = Math.max(8, Math.round(width * 0.012));

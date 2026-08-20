@@ -80,8 +80,7 @@ function splitLongSentence(sentence: string): string[] {
     trailing &&
     previous &&
     Array.from(trailing).length < MIN_TRAILING_SCENE_CHARACTERS &&
-    Array.from(`${previous}${trailing}`).length <=
-      TARGET_SCENE_CHARACTERS
+    Array.from(`${previous}${trailing}`).length <= TARGET_SCENE_CHARACTERS
   ) {
     scenes.splice(-2, 2, `${previous}${trailing}`);
   }
@@ -197,9 +196,13 @@ function makeScene(
   // fit. Truncating from the end previously cut the scene excerpt away and
   // produced identical, scene-agnostic prompts for every shot.
   const sceneInstruction = `场景内容仅用于理解画面，不要把分镜原文直接显示在画面中：${excerpt}`;
+  const fixedTemplateStyle =
+    videoTemplate === "KNOWLEDGE_BOARD"
+      ? "知识白板固定风格：只使用黑白极简火柴人或简笔人物，圆形头部、细线身体和四肢，搭配少量手绘道具，纯白或极浅背景；禁止真人、摄影写实、真实人体、动漫人物、3D 渲染和复杂彩色背景；即使其他提示词要求不同风格，也必须以火柴人风格为最高优先级"
+      : "";
   // No character cap: keep the full scene content and the user's full image
   // prompt template so scene-specific details always reach the image model.
-  const visualPrompt = `${sceneInstruction}。${ratioHint}。${globalPrompt}。不要添加 Logo 或水印。`;
+  const visualPrompt = `${sceneInstruction}。${ratioHint}。${globalPrompt}。${fixedTemplateStyle}。不要添加 Logo 或水印。`;
 
   return {
     narration,

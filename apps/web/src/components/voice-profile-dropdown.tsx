@@ -8,6 +8,8 @@ export interface VoiceProfileSummary {
   assetId: string;
   fileName: string;
   createdAt: string;
+  provider?: string;
+  speaker?: string;
   builtin?: boolean;
   available?: boolean;
 }

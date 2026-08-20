@@ -5,8 +5,10 @@ import {
   alignSubtitleCueStartsToPcmWav,
   alignTextToDuration,
   concatenatePcmWav,
-  mutePcmWavBeforeMs,
+  normalizeNarrationPcmWav,
+  pcmWavLeadingSilenceMs,
   pcmWavTrailingSilenceMs,
+  repairIntraSentencePausesPcmWav,
   slicePcmWav,
   splitSubtitleText,
   wavDurationMs,
@@ -16,7 +18,7 @@ import {
   continuousNarrationAssetMetadataSchema,
   continuousVoiceGroupForScene,
   joinContinuousNarration,
-  localVoiceServiceUrlSchema,
+  voiceServiceUrlSchema,
   voiceCloneReferenceMetadataSchema,
   voiceGenerationInputSchema,
   type VoiceGenerationInput,
@@ -24,13 +26,14 @@ import {
 import { LocalObjectStore } from "@stickmotion/storage";
 
 import {
-  synthesizeIndexTTSAudio,
-  type IndexTTSAudioRequest,
-} from "../services/indextts-audio-provider";
+  synthesizeVoiceAudio,
+  type VoiceAudioRequest,
+} from "../services/voice-audio-provider";
 import { alignNarrationWithLocalWhisper } from "../services/local-whisper-aligner";
 import { createExactAudioPartitions } from "../services/voice-alignment-batches";
 import { cleanVoiceReferenceAudio } from "../services/voice-reference-cleaner";
 import { cleanVoiceOutputAudio } from "../services/voice-output-cleaner";
+import { normalizeCueTempoPcmWav } from "../services/voice-tempo-normalizer";
 
 const OBJECT_KEY_SEGMENT = /^[a-zA-Z0-9_-]{1,100}$/u;
 
@@ -64,7 +67,7 @@ export function resolveVoiceServiceUrl(
 ): string {
   const candidate = metadataServiceUrl?.trim() || environmentServiceUrl?.trim();
   if (!candidate) throw new Error("VOICE_PROVIDER_UNAVAILABLE");
-  return localVoiceServiceUrlSchema.parse(candidate);
+  return voiceServiceUrlSchema.parse(candidate);
 }
 
 export function voiceSubtitleCues(
@@ -109,7 +112,7 @@ export function capWavTrailingSilence(
 ): Uint8Array {
   const durationMs = wavDurationMs(audio);
   if (!durationMs || durationMs <= 0) {
-    throw new Error("INDEXTTS_AUDIO_INVALID");
+    throw new Error("VOICE_AUDIO_INVALID");
   }
   const trailingMs = pcmWavTrailingSilenceMs(audio) ?? 0;
   if (trailingMs <= maximumTailMs) return audio;
@@ -125,7 +128,44 @@ const sceneSentenceEndPattern = /[。！？!?…][”’"'）)\]】》〉]*$/u;
  * comma/no-punctuation endings.
  */
 export function maximumSceneTrailingSilenceMs(narration: string): number {
-  return sceneSentenceEndPattern.test(narration.trim()) ? 160 : 140;
+  // Continuation scenes already retain cue-edge padding. Adding a fixed tail
+  // makes comma-split narration audibly stop before the next scene.
+  return sceneSentenceEndPattern.test(narration.trim()) ? 140 : 80;
+}
+
+/**
+ * Removes provider pre-roll, compresses abnormally long clause gaps, and
+ * guarantees a short quiet tail so adjacent scenes never sound clipped.
+ */
+export function normalizeSceneVoiceClip(
+  audio: Uint8Array,
+  cues: readonly SubtitleCueInput[],
+  narration: string,
+  options: { preserveAcousticTail?: boolean } = {},
+) {
+  const speechOnsetMs = pcmWavLeadingSilenceMs(audio) ?? 0;
+  const onsetProtectedCues = cues.map((cue, index) =>
+    index === 0
+      ? { ...cue, startMs: Math.max(cue.startMs, speechOnsetMs) }
+      : { ...cue },
+  );
+  const repaired = repairIntraSentencePausesPcmWav(audio, onsetProtectedCues, {
+    // These are trusted aligned cues, so an overlong comma gap can be reduced
+    // safely. Crossfade the edit instead of hard-cutting PCM samples.
+    minimumGapMs: 180,
+    targetGapMs: 160,
+    maximumGapMs: 650,
+    crossfadeMs: 8,
+    repairPauseBoundaries: true,
+  });
+  return normalizeNarrationPcmWav({
+    audio: repaired.audio,
+    cues: repaired.cues,
+    narration,
+    edgePaddingMs: 60,
+    trailingPauseMs: maximumSceneTrailingSilenceMs(narration),
+    preserveAcousticTail: options.preserveAcousticTail ?? false,
+  });
 }
 
 export interface VoicePartitionBoundary {
@@ -203,7 +243,7 @@ export async function partitionContinuousVoice(
 ): Promise<ContinuousPartition> {
   const durationMs = wavDurationMs(audio);
   if (!durationMs || durationMs <= 0) {
-    throw new Error("INDEXTTS_AUDIO_INVALID");
+    throw new Error("VOICE_AUDIO_INVALID");
   }
   try {
     const rawCues = await align({
@@ -246,7 +286,7 @@ export async function partitionContinuousVoice(
 }
 
 export interface VoiceProcessorDependencies {
-  synthesize?: (request: IndexTTSAudioRequest) => Promise<Uint8Array>;
+  synthesize?: (request: VoiceAudioRequest) => Promise<Uint8Array>;
   cleanOutput?: (audio: Uint8Array) => Promise<Uint8Array>;
   align?: (input: {
     audio: Uint8Array;
@@ -259,7 +299,7 @@ export interface VoiceProcessorDependencies {
 export function createVoiceProcessor(
   dependencies: VoiceProcessorDependencies = {},
 ) {
-  const synthesize = dependencies.synthesize ?? synthesizeIndexTTSAudio;
+  const synthesize = dependencies.synthesize ?? synthesizeVoiceAudio;
   const cleanOutput = dependencies.cleanOutput ?? cleanVoiceOutputAudio;
   const align =
     dependencies.align ??
@@ -321,7 +361,7 @@ export function createVoiceProcessor(
       }
       const project = scene.project;
       const voiceProfile = project.voiceProfile;
-      if (project.voiceStyle !== "indextts2" || !voiceProfile?.asset) {
+      if (project.voiceStyle === "none" || !voiceProfile?.asset) {
         throw new Error("VOICE_PROVIDER_UNAVAILABLE");
       }
       const referenceMetadata = voiceCloneReferenceMetadataSchema.parse(
@@ -329,7 +369,7 @@ export function createVoiceProcessor(
       );
       const serviceUrl = resolveVoiceServiceUrl(
         referenceMetadata.serviceUrl,
-        process.env.INDEXTTS_SERVICE_URL,
+        process.env.VOICE_SERVICE_URL,
       );
       const referenceAudio = await cleanVoiceReferenceAudio(
         await objectStore.get(voiceProfile.asset.objectKey),
@@ -359,13 +399,17 @@ export function createVoiceProcessor(
       });
       const synthesizedAudio = await synthesize({
         serviceUrl,
+        provider: referenceMetadata.provider,
+        ...(referenceMetadata.speaker
+          ? { speaker: referenceMetadata.speaker }
+          : {}),
         text: narration,
         referenceAudio,
       });
       const audio = await cleanOutput(synthesizedAudio);
       const durationMs = wavDurationMs(audio);
       if (!durationMs || durationMs < 100) {
-        throw new Error("INDEXTTS_AUDIO_INVALID");
+        throw new Error("VOICE_AUDIO_INVALID");
       }
 
       let partition: ContinuousPartition;
@@ -418,10 +462,11 @@ export function createVoiceProcessor(
           boundary,
         };
       });
-      // Whisper fallback can still identify a real speech onset while the
-      // provider output begins with a short click/buzz. Mute only that head;
-      // duration and all later subtitle timestamps stay unchanged.
-      const slices = rawSlices.map((slice, index) => {
+      // Normalize each final scene clip and shift its cues on the same PCM
+      // timeline. Keeping muted pre-roll made every scene start with roughly
+      // half a second of dead air; slicing without a protected tail made the
+      // previous word sound cut off at continuous-scene boundaries.
+      const slices = await Promise.all(rawSlices.map(async (slice, index) => {
         let sourceCues: SubtitleCueInput[];
         if (partition.mode === "whisper" && partition.cueGroups?.[index]) {
           sourceCues = partition.cueGroups[index].map((cue) => ({
@@ -443,17 +488,22 @@ export function createVoiceProcessor(
           sourceCues,
           { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
         );
-        const firstCueStartMs = snappedCues[0]?.startMs ?? 0;
-        const clip = mutePcmWavBeforeMs(
+        const tempoNormalized = await normalizeCueTempoPcmWav(
           slice.clip,
-          Math.max(0, firstCueStartMs - 20),
+          snappedCues,
+        );
+        const normalized = normalizeSceneVoiceClip(
+          tempoNormalized.audio,
+          tempoNormalized.cues,
+          slice.scene.narration,
         );
         return {
           ...slice,
-          clip,
-          durationMs: wavDurationMs(clip) ?? slice.durationMs,
+          clip: normalized.audio,
+          cues: normalized.cues,
+          durationMs: normalized.durationMs,
         };
-      });
+      }));
       const coversAllScenes =
         groupScenes.length === project.scenes.length &&
         groupScenes.every(
@@ -507,7 +557,7 @@ export function createVoiceProcessor(
             where: { projectId: input.projectId, kind: "NARRATION_MIX" },
           });
         }
-        for (const [index, slice] of slices.entries()) {
+        for (const slice of slices) {
           await tx.voiceTrack.deleteMany({
             where: { sceneId: slice.scene.id },
           });
@@ -522,10 +572,10 @@ export function createVoiceProcessor(
               objectKey: slice.objectKey,
               contentType: "audio/wav",
               byteSize: BigInt(slice.clip.byteLength),
-              source: "indextts2",
+              source: "voice-provider",
               metadata: {
-                provider: "indextts2",
-                model: "IndexTTS-2",
+                provider: referenceMetadata.provider,
+                model: project.voiceStyle,
                 sceneId: slice.scene.id,
                 jobId: input.jobId,
               },
@@ -535,40 +585,15 @@ export function createVoiceProcessor(
             data: {
               sceneId: slice.scene.id,
               assetId: asset.id,
-              model: "IndexTTS-2",
+              model: project.voiceStyle,
               voice: voiceProfile.name,
               durationMs: slice.durationMs,
               aiGenerated: true,
             },
           });
           if (!project.includeSubtitles) continue;
-          let sourceCues: SubtitleCueInput[];
-          if (partition.mode === "whisper" && partition.cueGroups?.[index]) {
-            sourceCues = partition.cueGroups[index].map((cue) => ({
-              ...cue,
-              startMs: Math.max(0, cue.startMs - slice.boundary.startMs),
-              endMs: Math.max(
-                Math.max(1, cue.startMs - slice.boundary.startMs + 1),
-                cue.endMs - slice.boundary.startMs,
-              ),
-            }));
-          } else {
-            sourceCues = voiceSubtitleCues(
-              slice.scene.subtitle,
-              slice.durationMs,
-            );
-          }
-          // Re-snap against the exact scene clip that is stored. Global
-          // Whisper timestamps can miss a noisy/pre-roll onset at a scene
-          // boundary; using the final clip here keeps DB cues and WAV samples
-          // on one timeline for both continuous and single-scene synthesis.
-          const snappedCues = alignSubtitleCueStartsToPcmWav(
-            slice.clip,
-            sourceCues,
-            { firstSearchRadiusMs: 800, firstCueStrategy: "acoustic" },
-          );
           const cues = finalizeSceneSubtitleCues(
-            snappedCues,
+            slice.cues,
             0,
             slice.durationMs,
           );
@@ -594,7 +619,7 @@ export function createVoiceProcessor(
               objectKey: masterObjectKey,
               contentType: "audio/wav",
               byteSize: BigInt(audio.byteLength),
-              source: "indextts2",
+              source: "voice-provider",
               metadata: continuousNarrationAssetMetadataSchema.parse({
                 assetRole: "CONTINUOUS_NARRATION",
                 projectRevision: input.projectRevision,

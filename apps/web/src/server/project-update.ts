@@ -10,7 +10,7 @@ const renameProjectInputSchema = z
 
 const clonedVoiceInputSchema = z
   .object({
-    voiceStyle: z.enum(["indextts2"]),
+    voiceStyle: z.string().trim().min(1).max(80),
     voiceProfileId: z.string().trim().min(1).max(100),
   })
   .strict();

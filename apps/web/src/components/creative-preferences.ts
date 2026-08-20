@@ -4,7 +4,9 @@ import { backgroundMusicSchema } from "@stickmotion/shared";
 
 const creativePreferencesSchema = z
   .object({
-    videoTemplate: z.enum(["FULL_BLEED", "KNOWLEDGE_BOARD"]).optional(),
+    videoTemplate: z
+      .enum(["FULL_BLEED", "KNOWLEDGE_BOARD", "IMPACT_CAPTIONS"])
+      .optional(),
     imageSize: z
       .enum([
         "AUTO",

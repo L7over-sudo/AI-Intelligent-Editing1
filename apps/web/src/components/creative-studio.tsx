@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
-import {
-  shortProjectTitle,
-  type ImageSizePreset,
-} from "@stickmotion/shared";
+import { shortProjectTitle, type ImageSizePreset } from "@stickmotion/shared";
 
 import { ConfirmDialog } from "./confirm-dialog";
 import { AppDialog } from "./app-dialog";
@@ -25,21 +22,18 @@ import {
 } from "./cover-template";
 import { GenerationAnalysisOverlay } from "./generation-analysis-overlay";
 import {
+  videoTemplateOptions,
+  type VideoTemplate,
+} from "./video-template-options";
+import {
   VoiceProfilePanel,
   type VoiceProfileSummary,
 } from "./voice-profile-panel";
 
 type StudioTab =
-  | "visual"
-  | "template"
-  | "cover"
-  | "transition"
-  | "character"
-  | "voice"
-  | "music";
+  "visual" | "cover" | "transition" | "character" | "voice" | "music";
 type AspectRatio = "PORTRAIT" | "LANDSCAPE";
 type OutputMode = "NARRATED" | "VISUAL_ONLY";
-type VideoTemplate = "FULL_BLEED" | "KNOWLEDGE_BOARD";
 
 const projectResponseSchema = z.object({
   project: z.object({ id: z.string().min(1) }).optional(),
@@ -60,20 +54,21 @@ const sampleCopy =
   "你有没有发现，越重要的事情，我们越容易拖延？这并不是因为懒，而是大脑在回避不确定性。把任务拆成一个两分钟就能开始的小动作，先完成第一步，行动就会自然发生。";
 const tabs: Array<{ id: StudioTab; label: string }> = [
   { id: "visual", label: "画面" },
-  { id: "template", label: "模板" },
   { id: "cover", label: "封面" },
   { id: "transition", label: "转场" },
   { id: "character", label: "角色" },
   { id: "voice", label: "配音" },
   { id: "music", label: "音乐" },
 ];
-
 export function CreativeStudio({
   onProjectCreated,
   onOpenSettings,
+  mode = "create",
 }: {
   onProjectCreated: (projectId: string) => void | Promise<void>;
   onOpenSettings: () => void;
+  mode?: "create" | "templates";
+  onOpenCreate?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<StudioTab>("visual");
   const [sourceText, setSourceText] = useState("");
@@ -95,9 +90,7 @@ export function CreativeStudio({
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("");
   const [voiceProfileName, setVoiceProfileName] = useState("我的声音");
   const [voiceReferenceFile, setVoiceReferenceFile] = useState<File>();
-  const [voiceServiceUrl, setVoiceServiceUrl] = useState(
-    "http://127.0.0.1:7851",
-  );
+  const [voiceServiceUrl, setVoiceServiceUrl] = useState("");
   const [voiceConsentConfirmed, setVoiceConsentConfirmed] = useState(false);
   const [characterProfiles, setCharacterProfiles] = useState<
     CharacterProfileSummary[]
@@ -138,9 +131,7 @@ export function CreativeStudio({
   }, []);
 
   useEffect(() => {
-    let stored:
-      | ReturnType<typeof parseStoredCreativePreferences>
-      | undefined;
+    let stored: ReturnType<typeof parseStoredCreativePreferences> | undefined;
     try {
       stored = parseStoredCreativePreferences(
         window.localStorage.getItem(creativePreferencesStorageKey),
@@ -219,6 +210,9 @@ export function CreativeStudio({
     if (value === "KNOWLEDGE_BOARD") {
       setAspectRatio("LANDSCAPE");
       setImageSize("21:9");
+    } else if (value === "IMPACT_CAPTIONS") {
+      setAspectRatio("LANDSCAPE");
+      setImageSize("16:9");
     }
   }
 
@@ -315,9 +309,15 @@ export function CreativeStudio({
             sourceText: copy,
             sourceKind,
             aspectRatio:
-              videoTemplate === "KNOWLEDGE_BOARD" ? "LANDSCAPE" : aspectRatio,
+              videoTemplate === "KNOWLEDGE_BOARD" ||
+              videoTemplate === "IMPACT_CAPTIONS"
+                ? "LANDSCAPE"
+                : aspectRatio,
             language: "zh-CN",
-            voiceStyle: selectedVoiceProfileId ? "indextts2" : "none",
+            voiceStyle:
+              voiceProfiles.find(
+                (profile) => profile.id === selectedVoiceProfileId,
+              )?.provider ?? (selectedVoiceProfileId ? "local-clone" : "none"),
             voiceProfileId: selectedVoiceProfileId || undefined,
             characterProfileId:
               selectedCharacterProfileId &&
@@ -418,6 +418,27 @@ export function CreativeStudio({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建失败");
     }
+  }
+
+  if (mode === "templates") {
+    return (
+      <main className="h-full overflow-y-auto bg-white text-[#17263a]">
+        <div className="min-h-full w-full bg-white p-5 pb-24 md:p-6 lg:pb-6">
+          <LegacyTemplatePanel
+            videoTemplate={videoTemplate}
+            setVideoTemplate={selectVideoTemplate}
+            templateHeader={templateHeader}
+            setTemplateHeader={setTemplateHeader}
+            leftVerticalText={leftVerticalText}
+            setLeftVerticalText={setLeftVerticalText}
+            rightVerticalText={rightVerticalText}
+            setRightVerticalText={setRightVerticalText}
+            mainTitle={mainTitle}
+            setMainTitle={setMainTitle}
+          />
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -580,6 +601,14 @@ export function CreativeStudio({
             ))}
           </nav>
 
+          <div className="border-b border-black/[0.05] px-5 py-3">
+            <VideoTemplateDropdown
+              value={videoTemplate}
+              onChange={selectVideoTemplate}
+              compact
+            />
+          </div>
+
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
             {activeTab === "visual" && (
               <VisualPanel
@@ -593,20 +622,6 @@ export function CreativeStudio({
                 setVideoTemplate={selectVideoTemplate}
                 imageApiReady={imageApiReady}
                 onOpenSettings={onOpenSettings}
-              />
-            )}
-            {activeTab === "template" && (
-              <TemplatePanel
-                videoTemplate={videoTemplate}
-                setVideoTemplate={selectVideoTemplate}
-                templateHeader={templateHeader}
-                setTemplateHeader={setTemplateHeader}
-                leftVerticalText={leftVerticalText}
-                setLeftVerticalText={setLeftVerticalText}
-                rightVerticalText={rightVerticalText}
-                setRightVerticalText={setRightVerticalText}
-                mainTitle={mainTitle}
-                setMainTitle={setMainTitle}
               />
             )}
             {activeTab === "cover" && (
@@ -1435,7 +1450,83 @@ function CoverPanel({
     </div>
   );
 }
-function TemplatePanel({
+
+function VideoTemplateDropdown({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: VideoTemplate;
+  onChange: (value: VideoTemplate) => void;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel =
+    videoTemplateOptions.find((option) => option.value === value)?.label ??
+    "选择模板";
+
+  return (
+    <div>
+      <span className="text-[10px] font-black tracking-[0.08em] text-[#7f8b98]">
+        视频模板
+      </span>
+      <span className="relative mt-1.5 block">
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className={`flex w-full items-center justify-between rounded-xl border border-black/10 bg-[#f7f9fb] text-left font-black text-[#16334f] outline-none transition hover:bg-white focus:border-[#16bec8] focus:ring-4 focus:ring-cyan-50 ${
+            compact ? "px-3 py-2 text-xs" : "px-4 py-3 text-sm"
+          }`}
+          aria-label="选择视频模板"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span>{selectedLabel}</span>
+          <span
+            className={`text-[10px] text-[#718096] transition ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            ▼
+          </span>
+        </button>
+        {open && (
+          <span
+            role="listbox"
+            aria-label="视频模板选项"
+            className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-50 grid overflow-hidden rounded-xl border border-black/10 bg-white p-1.5 shadow-[0_16px_40px_rgba(21,46,67,0.16)]"
+          >
+            {videoTemplateOptions.map((option) => {
+              const selected = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-bold transition ${
+                    selected
+                      ? "bg-[#16334f] text-white"
+                      : "text-[#526274] hover:bg-[#f2f6f8]"
+                  }`}
+                >
+                  {option.label}
+                  {selected && <span className="text-[#5ce0e5]">●</span>}
+                </button>
+              );
+            })}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+export function LegacyTemplatePanel({
   videoTemplate,
   setVideoTemplate,
   templateHeader,
@@ -1459,101 +1550,83 @@ function TemplatePanel({
   setMainTitle: (value: string) => void;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
+
   return (
     <div className="grid gap-6">
       <section>
-        <h3 className="text-sm font-black">视频模板</h3>
-        <p className="mt-1 text-xs leading-5 text-black/40">
-          知识白板会缩小分镜图片，并为顶部标题和底部字幕保留独立区域。
+        <h2 className="text-lg font-black">视频模板</h2>
+        <p className="mt-1 text-sm leading-6 text-black/40">
+          选择画面结构和文字呈现方式，选择哪个就使用哪个模板。
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setVideoTemplate("KNOWLEDGE_BOARD")}
-            className={`rounded-2xl border p-3 text-left transition ${
-              videoTemplate === "KNOWLEDGE_BOARD"
-                ? "border-[#16bec8] bg-cyan-50"
-                : "border-black/[0.07] bg-white"
-            } relative cursor-pointer`}
-          >
-            <span
-              className="relative mb-3 block aspect-video overflow-hidden rounded-lg border border-black/10"
-              style={{
-                backgroundColor: "#FFFFFF",
-                fontFamily: "DouyinSansBold, Microsoft YaHei",
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          {videoTemplateOptions.map((template) => (
+            <div
+              key={template.value}
+              role="button"
+              tabIndex={0}
+              data-template-id={template.value}
+              onClick={() => setVideoTemplate(template.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  setVideoTemplate(template.value);
+                }
               }}
+              className={`relative cursor-pointer rounded-2xl border p-3 text-left transition ${
+                videoTemplate === template.value
+                  ? "border-[#16bec8] bg-cyan-50 shadow-[0_0_0_3px_rgb(22_190_200/10%)]"
+                  : "border-black/[0.07] bg-white hover:border-black/15"
+              }`}
             >
-              <span className="absolute inset-x-[8%] top-[3%] flex h-[11.5%] items-center justify-center text-[6px] font-black text-black">
-                {mainTitle || "\u6807\u9898"}
-              </span>
-              <span className="absolute inset-x-[12%] top-[14.5%] flex h-[6.5%] items-center justify-center gap-[1.5%]">
-                <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
-                <span className="max-w-[82%] overflow-hidden whitespace-nowrap text-[3px] font-bold tracking-[0.2em] text-[#797979]">
-                  {templateHeader}
+              {template.value === "KNOWLEDGE_BOARD" ? (
+                <KnowledgeBoardLayoutPreview
+                  mainTitle={mainTitle}
+                  templateHeader={templateHeader}
+                  leftVerticalText={leftVerticalText}
+                  rightVerticalText={rightVerticalText}
+                  compact
+                />
+              ) : template.value === "IMPACT_CAPTIONS" ? (
+                <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg bg-[#172b3b]">
+                  <span
+                    className="absolute top-0 left-0 block origin-top-left scale-50"
+                    style={{ width: "200%", height: "200%" }}
+                  >
+                    <TemplateArtwork
+                      template="IMPACT_CAPTIONS"
+                      templateHeader={templateHeader}
+                      mainTitle={mainTitle}
+                      leftVerticalText={leftVerticalText}
+                      rightVerticalText={rightVerticalText}
+                    />
+                  </span>
                 </span>
-                <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
-              </span>
-              <span
-                className="absolute top-[24%] bottom-[24%] left-[2.5%] overflow-hidden text-[3px] leading-[1.45] text-[#cccccc]"
-                style={{ writingMode: "vertical-rl" }}
-              >
-                {Array.from(leftVerticalText.replace(/\n/gu, ""))}
-              </span>
-              <span
-                className="absolute top-[24%] bottom-[24%] right-[2.5%] overflow-hidden text-[3px] leading-[1.45] text-[#cccccc]"
-                style={{ writingMode: "vertical-rl" }}
-              >
-                {Array.from(rightVerticalText.replace(/\n/gu, ""))}
-              </span>
-              <span className="absolute inset-x-0 bottom-[18.5%] h-px bg-black" />
-              <span className="absolute inset-x-0 bottom-0 flex h-[18.5%] items-center justify-center">
-                <span
-                  className="text-[4px] font-black leading-none text-white"
-                  style={{
-                    WebkitTextStroke: "0.4px black",
-                    paintOrder: "stroke fill",
-                  }}
-                >
-                  {"\u9884\u89c8\u5b57\u5e55"}
+              ) : (
+                <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-slate-300 via-cyan-100 to-orange-100">
+                  <span className="absolute inset-x-[18%] bottom-[12%] h-2 rounded bg-white shadow" />
                 </span>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <strong className="block text-sm">{template.label}</strong>
+                {template.value === "KNOWLEDGE_BOARD" && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setVideoTemplate("KNOWLEDGE_BOARD");
+                      setModalOpen(true);
+                    }}
+                    className="shrink-0 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white transition hover:bg-black"
+                  >
+                    编辑
+                  </button>
+                )}
+              </div>
+              <span className="mt-1 block text-[11px] text-black/40">
+                {template.description}
               </span>
-            </span>
-            <div className="flex items-center justify-between gap-2">
-              <strong className="block text-sm">知识白板</strong>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setVideoTemplate("KNOWLEDGE_BOARD");
-                  setModalOpen(true);
-                }}
-                className="shrink-0 rounded-lg bg-black/75 px-2.5 py-1 text-[10px] font-black text-white transition hover:bg-black"
-              >
-                编辑
-              </button>
             </div>
-            <span className="mt-1 block text-[11px] text-black/40">
-              图片缩小，字幕不遮挡画面
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setVideoTemplate("FULL_BLEED")}
-            className={`rounded-2xl border p-3 text-left transition ${
-              videoTemplate === "FULL_BLEED"
-                ? "border-[#16bec8] bg-cyan-50"
-                : "border-black/[0.07] bg-white"
-            }`}
-          >
-            <span className="relative mb-3 block aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-slate-300 via-cyan-100 to-orange-100">
-              <span className="absolute inset-x-[18%] bottom-[12%] h-2 rounded bg-white shadow" />
-            </span>
-            <strong className="block text-sm">全屏画面</strong>
-            <span className="mt-1 block text-[11px] text-black/40">
-              保留原来的铺满画面样式
-            </span>
-          </button>
+          ))}
         </div>
       </section>
 
@@ -1572,120 +1645,39 @@ function TemplatePanel({
             </div>
 
             <div className="mt-4 grid gap-5 lg:grid-cols-2">
-              <div
-                className="relative aspect-video overflow-hidden rounded-xl border border-black/10"
-                style={{
-                  backgroundColor: "#FFFFFF",
-                  fontFamily: "DouyinSansBold, Microsoft YaHei",
-                }}
-              >
-                <div className="absolute inset-x-[8%] top-[2.5%] flex h-[11.5%] items-center justify-center overflow-hidden whitespace-nowrap text-xl font-black leading-none text-black">
-                  {mainTitle || "\u6807\u9898"}
-                </div>
-                <div className="absolute inset-x-[12%] top-[14.5%] flex h-[6.5%] items-center justify-center gap-[1.5%]">
-                  <div className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
-                  <div className="max-w-[82%] overflow-hidden whitespace-nowrap text-[10px] font-bold tracking-[0.2em] text-[#797979]">
-                    {templateHeader || "\u9876\u90e8\u680f\u76ee\u6807\u9898"}
-                  </div>
-                  <div className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
-                </div>
-                <div className="absolute top-[22%] bottom-[22%] left-[3.125%] flex -translate-x-1/2 flex-col items-center justify-center text-[7px] leading-none text-[#cccccc]">
-                  {leftVerticalText
-                    .split(/\r?\n\s*\r?\n/u)
-                    .filter((group) => group.trim())
-                    .map((group, groupIndex) => (
-                      <span
-                        key={`left-group-${groupIndex}`}
-                        className="mb-1 flex flex-col items-center gap-0.5 last:mb-0"
-                      >
-                        {Array.from(group.replace(/\r?\n/gu, "").trim()).map(
-                          (character, index) => (
-                            <span key={`left-${groupIndex}-${index}`}>
-                              {character}
-                            </span>
-                          ),
-                        )}
-                      </span>
-                    ))}
-                </div>
-                <div className="absolute top-[22%] right-[3.125%] bottom-[22%] flex translate-x-1/2 flex-col items-center justify-center text-[7px] leading-none text-[#cccccc]">
-                  {rightVerticalText
-                    .split(/\r?\n\s*\r?\n/u)
-                    .filter((group) => group.trim())
-                    .map((group, groupIndex) => (
-                      <span
-                        key={`right-group-${groupIndex}`}
-                        className="mb-1 flex flex-col items-center gap-0.5 last:mb-0"
-                      >
-                        {Array.from(group.replace(/\r?\n/gu, "").trim()).map(
-                          (character, index) => (
-                            <span key={`right-${groupIndex}-${index}`}>
-                              {character}
-                            </span>
-                          ),
-                        )}
-                      </span>
-                    ))}
-                </div>
-                <div className="absolute inset-x-0 bottom-[18.5%] h-px bg-black" />
-                <div className="absolute inset-x-0 bottom-0 flex h-[18.5%] items-center justify-center">
-                  <span
-                    className="px-2 text-base font-black leading-none tracking-wide text-white"
-                    style={{
-                      WebkitTextStroke: "1px rgba(0, 0, 0, 0.92)",
-                      paintOrder: "stroke fill",
-                      textShadow: "0 1px 2px rgba(0, 0, 0, 0.45)",
-                    }}
-                  >
-                    {"\u6717\u8bfb\u5b57\u5e55\u793a\u4f8b"}
-                  </span>
-                </div>
-              </div>
-              <div className="grid gap-3">
-                <label className="grid gap-1.5 text-sm font-bold">
-                  主标题
-                  <input
-                    value={mainTitle}
-                    onChange={(event) => setMainTitle(event.target.value)}
-                    maxLength={60}
-                    placeholder="例如：自我突破"
-                    className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-                  />
-                </label>
-                <label className="grid gap-1.5 text-sm font-bold">
-                  顶部栏目标题
-                  <input
-                    value={templateHeader}
-                    onChange={(event) => setTemplateHeader(event.target.value)}
-                    maxLength={120}
-                    placeholder="例如：思维提升 | 表达沟通 | 职场成长"
-                    className="rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-                  />
-                </label>
-                <label className="grid gap-1.5 text-sm font-bold">
-                  左侧竖排文字
-                  <textarea
-                    value={leftVerticalText}
-                    onChange={(event) =>
-                      setLeftVerticalText(event.target.value)
-                    }
-                    rows={5}
-                    placeholder="无限进化的Jay"
-                    className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-                  />
-                </label>
-                <label className="grid gap-1.5 text-sm font-bold">
-                  右侧竖排文字
-                  <textarea
-                    value={rightVerticalText}
-                    onChange={(event) =>
-                      setRightVerticalText(event.target.value)
-                    }
-                    rows={5}
-                    placeholder={"个人观点\n\n无不良引导"}
-                    className="resize-none rounded-xl border border-black/[0.08] bg-[#f6f8f9] p-3 text-sm outline-none focus:border-[#16bec8] focus:bg-white"
-                  />
-                </label>
+              <KnowledgeBoardLayoutPreview
+                mainTitle={mainTitle}
+                templateHeader={templateHeader}
+                leftVerticalText={leftVerticalText}
+                rightVerticalText={rightVerticalText}
+              />
+              <div className="grid content-start gap-3">
+                <TemplateTextField
+                  label="主标题"
+                  value={mainTitle}
+                  onChange={setMainTitle}
+                  placeholder="例如：自我突破"
+                />
+                <TemplateTextField
+                  label="顶部栏目标题"
+                  value={templateHeader}
+                  onChange={setTemplateHeader}
+                  placeholder="例如：思维提升 | 表达沟通 | 职场成长"
+                />
+                <TemplateTextField
+                  label="左侧竖排文字"
+                  value={leftVerticalText}
+                  onChange={setLeftVerticalText}
+                  placeholder="无限进化的Jay"
+                  multiline
+                />
+                <TemplateTextField
+                  label="右侧竖排文字"
+                  value={rightVerticalText}
+                  onChange={setRightVerticalText}
+                  placeholder={"个人观点\n\n无不良引导"}
+                  multiline
+                />
               </div>
             </div>
           </div>
@@ -1694,6 +1686,644 @@ function TemplatePanel({
     </div>
   );
 }
+
+function KnowledgeBoardLayoutPreview({
+  mainTitle,
+  templateHeader,
+  leftVerticalText,
+  rightVerticalText,
+  compact = false,
+}: {
+  mainTitle: string;
+  templateHeader: string;
+  leftVerticalText: string;
+  rightVerticalText: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`relative aspect-video overflow-hidden border border-black/10 bg-white ${
+        compact ? "mb-3 rounded-lg" : "rounded-xl"
+      }`}
+      style={{ fontFamily: "DouyinSansBold, Microsoft YaHei" }}
+    >
+      <div
+        className={`absolute inset-x-[8%] top-[3%] flex h-[11.5%] items-center justify-center overflow-hidden whitespace-nowrap font-black text-black ${
+          compact ? "text-[6px]" : "text-xl"
+        }`}
+      >
+        {mainTitle || "标题"}
+      </div>
+      <div className="absolute inset-x-[12%] top-[14.5%] flex h-[6.5%] items-center justify-center gap-[1.5%]">
+        <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
+        <span
+          className={`max-w-[82%] overflow-hidden whitespace-nowrap font-bold tracking-[0.2em] text-[#797979] ${
+            compact ? "text-[3px]" : "text-[10px]"
+          }`}
+        >
+          {templateHeader || "顶部栏目标题"}
+        </span>
+        <span className="h-px w-[1.7%] shrink-0 bg-[#787878]" />
+      </div>
+      <span
+        className={`absolute top-[24%] bottom-[24%] left-[2.5%] overflow-hidden leading-[1.45] text-[#cccccc] ${
+          compact ? "text-[3px]" : "text-[7px]"
+        }`}
+        style={{ writingMode: "vertical-rl" }}
+      >
+        {leftVerticalText.replace(/\n/gu, "")}
+      </span>
+      <span
+        className={`absolute top-[24%] right-[2.5%] bottom-[24%] overflow-hidden leading-[1.45] text-[#cccccc] ${
+          compact ? "text-[3px]" : "text-[7px]"
+        }`}
+        style={{ writingMode: "vertical-rl" }}
+      >
+        {rightVerticalText.replace(/\n/gu, "")}
+      </span>
+      <span className="absolute inset-x-0 bottom-[18.5%] h-px bg-black" />
+      <span className="absolute inset-x-0 bottom-0 flex h-[18.5%] items-center justify-center">
+        <span
+          className={`font-black leading-none text-white ${
+            compact ? "text-[4px]" : "text-base"
+          }`}
+          style={{
+            WebkitTextStroke: compact ? "0.4px black" : "1px black",
+            paintOrder: "stroke fill",
+          }}
+        >
+          {compact ? "预览字幕" : "朗读字幕示例"}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+export function TemplateLibraryPanel({
+  videoTemplate,
+  setVideoTemplate,
+  templateHeader,
+  setTemplateHeader,
+  leftVerticalText,
+  setLeftVerticalText,
+  rightVerticalText,
+  setRightVerticalText,
+  mainTitle,
+  setMainTitle,
+  onOpenCreate,
+}: {
+  videoTemplate: VideoTemplate;
+  setVideoTemplate: (value: VideoTemplate) => void;
+  templateHeader: string;
+  setTemplateHeader: (value: string) => void;
+  leftVerticalText: string;
+  setLeftVerticalText: (value: string) => void;
+  rightVerticalText: string;
+  setRightVerticalText: (value: string) => void;
+  mainTitle: string;
+  setMainTitle: (value: string) => void;
+  onOpenCreate?: () => void;
+}) {
+  const [category, setCategory] = useState<"all" | "text" | "layout">("all");
+  const [editingTemplate, setEditingTemplate] = useState<VideoTemplate | null>(
+    null,
+  );
+  const [previewingTemplate, setPreviewingTemplate] =
+    useState<VideoTemplate | null>(null);
+  const [previewRun, setPreviewRun] = useState(0);
+  const templates: Array<{
+    id: VideoTemplate;
+    title: string;
+    description: string;
+    category: "text" | "layout";
+    tags: string[];
+  }> = [
+    {
+      id: "KNOWLEDGE_BOARD",
+      title: "知识白板",
+      description: "固定使用黑白火柴人画面，标题、页眉和字幕各有独立区域。",
+      category: "layout",
+      tags: ["16:9", "固定火柴人", "字幕避让"],
+    },
+    {
+      id: "IMPACT_CAPTIONS",
+      title: "爆点大字",
+      description: "全文重点句按原文顺序逐句出现，并在同一画面持续累积。",
+      category: "text",
+      tags: ["16:9", "重点文字", "弹入回弹"],
+    },
+    {
+      id: "FULL_BLEED",
+      title: "全屏画面",
+      description: "素材铺满画布，底部保留轻量跟读字幕，突出画面本身。",
+      category: "layout",
+      tags: ["全屏素材", "轻量字幕", "沉浸画面"],
+    },
+  ];
+  const visibleTemplates = templates.filter(
+    (template) => category === "all" || template.category === category,
+  );
+  const editingMeta = templates.find(
+    (template) => template.id === editingTemplate,
+  );
+  const previewMeta = templates.find(
+    (template) => template.id === previewingTemplate,
+  );
+
+  function useTemplate(template: VideoTemplate) {
+    setVideoTemplate(template);
+    onOpenCreate?.();
+  }
+
+  return (
+    <main className="h-full overflow-y-auto bg-[linear-gradient(180deg,#f7f9fc_0%,#eef4f9_100%)] p-5 pb-24 text-[#17263a] md:p-7 lg:pb-7">
+      <div className="w-full">
+        <header className="flex min-h-[61px] items-center gap-3 border-b border-black/[0.06] pb-5">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ff] text-[#3767a5] shadow-sm ring-1 ring-black/[0.03]">
+            <svg
+              aria-hidden="true"
+              width="19"
+              height="19"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M8 4v16M8 9h13" />
+            </svg>
+          </span>
+          <div>
+            <h1 className="text-lg font-bold md:text-xl">视频模板</h1>
+            <p className="mt-1 text-sm text-black/40">
+              预览、选择和调整视频模板
+            </p>
+          </div>
+        </header>
+
+        <div className="relative mx-auto mt-5 flex max-w-[1380px] flex-col items-center gap-3">
+          <div className="inline-flex rounded-2xl border border-[#dfe6ed] bg-white p-1.5 shadow-sm">
+            {[
+              ["all", "全部模板"],
+              ["text", "重点文字"],
+              ["layout", "画面结构"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setCategory(id as "all" | "text" | "layout")}
+                className={`rounded-xl px-5 py-2.5 text-sm font-black transition ${
+                  category === id
+                    ? "bg-[#e9f1ff] text-[#315f9d]"
+                    : "text-[#758397] hover:bg-[#f4f7fa]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs font-bold text-[#8290a0] lg:absolute lg:right-0 lg:top-1/2 lg:-translate-y-1/2">
+            当前使用：
+            <span className="text-[#315f9d]">
+              {
+                templates.find((template) => template.id === videoTemplate)
+                  ?.title
+              }
+            </span>
+          </p>
+        </div>
+
+        <section className="mx-auto mt-6 grid max-w-[1380px] gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {visibleTemplates.map((template) => {
+            const selected = template.id === videoTemplate;
+            return (
+              <article
+                key={template.id}
+                className={`group overflow-hidden rounded-[24px] border bg-white shadow-[0_12px_36px_rgba(47,73,96,0.08)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(47,73,96,0.13)] ${
+                  selected
+                    ? "border-[#5e8fd5] ring-4 ring-[#dceaff]"
+                    : "border-[#dfe6ed]"
+                }`}
+              >
+                <div className="relative aspect-video overflow-hidden bg-[#132338]">
+                  <TemplateArtwork
+                    template={template.id}
+                    templateHeader={templateHeader}
+                    mainTitle={mainTitle}
+                    leftVerticalText={leftVerticalText}
+                    rightVerticalText={rightVerticalText}
+                  />
+                  <span className="absolute top-4 left-4 rounded-full border border-white/15 bg-black/35 px-3 py-1.5 text-[10px] font-black tracking-[0.08em] text-white backdrop-blur-md">
+                    {selected ? "当前使用" : "自有模板"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewingTemplate(template.id);
+                      setPreviewRun((run) => run + 1);
+                    }}
+                    className="absolute right-4 bottom-4 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] font-black text-white backdrop-blur-md transition hover:bg-black/70"
+                  >
+                    预览
+                  </button>
+                </div>
+                <div className="p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-xl font-black">{template.title}</h2>
+                    {selected && (
+                      <span className="rounded-full bg-[#eaf2ff] px-2.5 py-1 text-[10px] font-black text-[#3568a8]">
+                        已选择
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 min-h-12 text-sm leading-6 text-[#6f7e91]">
+                    {template.description}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {template.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-lg bg-[#edf4ff] px-2.5 py-1 text-[11px] font-bold text-[#4d73a4]"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-5 grid grid-cols-[1fr_auto] gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => useTemplate(template.id)}
+                      className="rounded-xl bg-[#315f9d] px-4 py-3 text-sm font-black text-white transition hover:bg-[#244f88]"
+                    >
+                      {selected ? "已选中，去创作" : "使用此模板"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingTemplate(template.id)}
+                      className="rounded-xl border border-[#d8e2eb] bg-white px-4 py-3 text-sm font-black text-[#52677e] transition hover:bg-[#f3f7fa]"
+                    >
+                      编辑
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      </div>
+
+      {previewingTemplate && previewMeta && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-[#07131f]/60 p-4 backdrop-blur-[3px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="video-template-preview-title"
+          onMouseDown={() => setPreviewingTemplate(null)}
+        >
+          <div
+            className="w-full max-w-4xl rounded-[24px] bg-white p-4 shadow-2xl md:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 px-1 pb-3">
+              <div>
+                <p className="text-[11px] font-black tracking-[0.14em] text-[#7290ad]">
+                  动画预览
+                </p>
+                <h2
+                  id="video-template-preview-title"
+                  className="mt-1 text-xl font-black"
+                >
+                  {previewMeta.title}
+                </h2>
+                <p className="mt-1 text-sm text-[#758397]">
+                  {previewMeta.description}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewingTemplate(null)}
+                className="grid size-10 shrink-0 place-items-center rounded-full bg-[#f0f4f7] text-xl text-[#66788a]"
+                aria-label="关闭模板预览"
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              key={`${previewingTemplate}-${previewRun}`}
+              className="relative aspect-video overflow-hidden rounded-xl border border-[#dce5ed] bg-[#132338] shadow-[inset_0_0_0_1px_rgba(255,255,255,.06)]"
+            >
+              <TemplateArtwork
+                template={previewingTemplate}
+                templateHeader={templateHeader}
+                mainTitle={mainTitle}
+                leftVerticalText={leftVerticalText}
+                rightVerticalText={rightVerticalText}
+                animated
+              />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-white/15">
+                <div className="template-preview-progress h-full bg-[#5e8fd5]" />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-bold text-[#7b8998]">
+                预览会演示文字入场、画面运动和字幕出现顺序
+              </p>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewRun((run) => run + 1)}
+                  className="rounded-xl border border-[#d8e2eb] bg-white px-4 py-2.5 text-sm font-black text-[#52677e] transition hover:bg-[#f3f7fa]"
+                >
+                  ↻ 重新播放
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewingTemplate(null);
+                    useTemplate(previewingTemplate);
+                  }}
+                  className="rounded-xl bg-[#315f9d] px-4 py-2.5 text-sm font-black text-white transition hover:bg-[#244f88]"
+                >
+                  使用此模板
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingTemplate && editingMeta && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-[#07131f]/55 p-4 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="video-template-editor-title"
+          onMouseDown={() => setEditingTemplate(null)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-5 shadow-2xl md:p-7"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-black tracking-[0.14em] text-[#7290ad]">
+                  模板编辑
+                </p>
+                <h2
+                  id="video-template-editor-title"
+                  className="mt-1 text-2xl font-black"
+                >
+                  {editingMeta.title}
+                </h2>
+                <p className="mt-1 text-sm text-[#758397]">
+                  {editingMeta.description}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTemplate(null)}
+                className="grid size-10 shrink-0 place-items-center rounded-full bg-[#f0f4f7] text-xl text-[#66788a]"
+                aria-label="关闭模板编辑"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="relative aspect-video overflow-hidden rounded-2xl border border-[#dce5ed] bg-[#132338] shadow-inner">
+                <TemplateArtwork
+                  template={editingTemplate}
+                  templateHeader={templateHeader}
+                  mainTitle={mainTitle}
+                  leftVerticalText={leftVerticalText}
+                  rightVerticalText={rightVerticalText}
+                />
+              </div>
+
+              {editingTemplate === "KNOWLEDGE_BOARD" ? (
+                <div className="grid content-start gap-3">
+                  <TemplateTextField
+                    label="主标题"
+                    value={mainTitle}
+                    onChange={setMainTitle}
+                    placeholder="例如：职场沟通"
+                  />
+                  <TemplateTextField
+                    label="顶部栏目"
+                    value={templateHeader}
+                    onChange={setTemplateHeader}
+                    placeholder="思维提升 | 表达沟通 | 职场成长"
+                  />
+                  <TemplateTextField
+                    label="左侧竖排文字"
+                    value={leftVerticalText}
+                    onChange={setLeftVerticalText}
+                    multiline
+                  />
+                  <TemplateTextField
+                    label="右侧竖排文字"
+                    value={rightVerticalText}
+                    onChange={setRightVerticalText}
+                    multiline
+                  />
+                </div>
+              ) : (
+                <div className="grid content-start gap-4">
+                  <div className="rounded-2xl bg-[#f2f6fa] p-4">
+                    <strong className="text-sm">文字怎么修改</strong>
+                    <p className="mt-2 text-sm leading-6 text-[#697b8e]">
+                      {editingTemplate === "IMPACT_CAPTIONS"
+                        ? "大字内容来自创作页的完整文案，系统会按原文顺序提取重点句并逐句累积。修改创作文案，模板文字会同步变化。"
+                        : "全屏模板的画面和字幕跟随创作页内容生成。修改文案、画面提示词或分镜素材即可调整最终效果。"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-[#dce5ed] p-4">
+                    <strong className="text-sm">模板固定效果</strong>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {editingMeta.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-lg bg-[#edf4ff] px-3 py-1.5 text-xs font-bold text-[#4d73a4]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-[#e4eaf0] pt-5">
+              <button
+                type="button"
+                onClick={() => setEditingTemplate(null)}
+                className="rounded-xl border border-[#d8e2eb] px-5 py-3 text-sm font-black text-[#5f7184]"
+              >
+                完成编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => useTemplate(editingTemplate)}
+                className="rounded-xl bg-[#315f9d] px-5 py-3 text-sm font-black text-white"
+              >
+                使用并进入创作
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function TemplateTextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  const className =
+    "mt-1.5 w-full rounded-xl border border-[#dce5ed] bg-[#f7f9fb] px-3 py-2.5 text-sm outline-none transition focus:border-[#6c98d1] focus:bg-white focus:ring-4 focus:ring-[#e7f0fc]";
+  return (
+    <label className="text-xs font-black text-[#5f7184]">
+      {label}
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          rows={3}
+          placeholder={placeholder}
+          className={`${className} resize-none`}
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className={className}
+        />
+      )}
+    </label>
+  );
+}
+
+function TemplateArtwork({
+  template,
+  templateHeader,
+  mainTitle,
+  leftVerticalText,
+  rightVerticalText,
+  animated = false,
+}: {
+  template: VideoTemplate;
+  templateHeader: string;
+  mainTitle: string;
+  leftVerticalText: string;
+  rightVerticalText: string;
+  animated?: boolean;
+}) {
+  if (template === "KNOWLEDGE_BOARD") {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-white text-black">
+        <div
+          className={`absolute inset-x-[9%] top-[6%] truncate text-center text-[clamp(11px,1.5vw,22px)] font-black ${animated ? "template-preview-knowledge-title" : ""}`}
+        >
+          {mainTitle || "职场沟通，先把话说清楚"}
+        </div>
+        <div className="absolute inset-x-[18%] top-[18%] flex items-center justify-center gap-2 text-[clamp(5px,.55vw,9px)] font-bold tracking-[0.16em] text-black/40">
+          <span className="h-px w-5 bg-black/30" />
+          <span className="truncate">{templateHeader}</span>
+          <span className="h-px w-5 bg-black/30" />
+        </div>
+        <div
+          className={`absolute inset-x-[8%] top-[23%] h-[63%] overflow-hidden rounded-xl bg-[#dce8ef] ${animated ? "template-preview-knowledge-board" : ""}`}
+        >
+          <img
+            src="/template-previews/knowledge-board-stick-figure.png"
+            alt=""
+            className="h-full w-full object-cover object-center"
+          />
+          <span className="absolute inset-0 bg-gradient-to-r from-black/5 via-transparent to-black/15" />
+        </div>
+        <span
+          className="absolute top-[28%] bottom-[14%] left-[3.5%] overflow-hidden text-[clamp(4px,.45vw,8px)] leading-[1.55] text-black/20"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          {leftVerticalText.replace(/\n/gu, "")}
+        </span>
+        <span
+          className="absolute top-[28%] right-[3.5%] bottom-[14%] overflow-hidden text-[clamp(4px,.45vw,8px)] leading-[1.55] text-black/20"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          {rightVerticalText.replace(/\n/gu, "")}
+        </span>
+        <div className="absolute inset-x-0 bottom-[11%] h-px bg-black/70" />
+        <div
+          className={`absolute inset-x-[12%] bottom-[3%] text-center text-[clamp(7px,.75vw,12px)] font-black text-white [text-shadow:0_1px_3px_rgba(0,0,0,.8)] ${animated ? "template-preview-knowledge-subtitle" : ""}`}
+        >
+          把复杂信息讲得更清楚
+        </div>
+      </div>
+    );
+  }
+  if (template === "IMPACT_CAPTIONS") {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(125deg,#102739_0%,#314656_45%,#785e50_100%)]">
+        <img
+          src="/template-previews/workplace-thinking.png"
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover object-center opacity-85"
+        />
+        <span className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,20,31,.35),rgba(20,35,48,.48),rgba(44,28,22,.48))]" />
+        <span className="absolute inset-0 bg-black/10" />
+        <div
+          className={`absolute inset-x-[8%] top-[24%] text-center text-[clamp(14px,2.2vw,34px)] font-black leading-none text-[#ff2457] [-webkit-text-stroke:1.5px_white] [paint-order:stroke_fill] [text-shadow:0_4px_4px_rgba(0,0,0,.75)] ${animated ? "template-preview-impact-line-one" : ""}`}
+        >
+          但你知道吗
+        </div>
+        <div
+          className={`absolute inset-x-[7%] top-[47%] text-center text-[clamp(12px,1.8vw,29px)] font-black leading-none text-[#ffe700] [-webkit-text-stroke:1.5px_black] [paint-order:stroke_fill] ${animated ? "template-preview-impact-line-two" : ""}`}
+        >
+          很多答案你早就知道了
+        </div>
+        <div
+          className={`absolute inset-x-0 bottom-[8%] text-center text-[clamp(6px,.65vw,11px)] font-bold text-white/75 ${animated ? "template-preview-impact-caption" : ""}`}
+        >
+          全文重点 · 逐句弹入 · 同屏累积
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-[#182b3b]">
+      <img
+        src="/template-previews/workplace-thinking.png"
+        alt=""
+        className={`absolute inset-0 h-full w-full object-cover object-center ${animated ? "template-preview-full-pan" : ""}`}
+      />
+      <span className="absolute inset-0 bg-gradient-to-r from-black/5 via-transparent to-black/20" />
+      <div className="absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-t from-black/75 to-transparent" />
+      <div
+        className={`absolute inset-x-[10%] bottom-[9%] rounded-lg bg-black/30 px-3 py-2 text-center text-[clamp(7px,.75vw,12px)] font-black text-white backdrop-blur-sm ${animated ? "template-preview-full-subtitle" : ""}`}
+      >
+        画面铺满，字幕轻量呈现
+      </div>
+    </div>
+  );
+}
+
 function VisualPanel({
   imagePrompt,
   setImagePrompt,
@@ -1743,7 +2373,10 @@ function VisualPanel({
 
   function selectSize(value: ImageSizePreset) {
     setImageSize(value);
-    if (value !== "21:9") {
+    if (
+      (videoTemplate === "KNOWLEDGE_BOARD" && value !== "21:9") ||
+      (videoTemplate === "IMPACT_CAPTIONS" && value !== "16:9")
+    ) {
       setVideoTemplate("FULL_BLEED");
     }
     if (value.includes("x")) {
@@ -1925,7 +2558,9 @@ function VisualPanel({
         <div className="rounded-2xl bg-emerald-50 p-4 text-xs font-bold leading-5 text-emerald-800">
           {videoTemplate === "KNOWLEDGE_BOARD"
             ? "图片 API 已配置。生成时会按固定 21:9 为每个句子创建独立图片。"
-            : "图片 API 已配置。生成时会按所选比例为每个句子创建独立图片。"}
+            : videoTemplate === "IMPACT_CAPTIONS"
+              ? "图片 API 已配置。爆点大字模板固定使用 16:9，文字动画会在成片渲染时叠加。"
+              : "图片 API 已配置。生成时会按所选比例为每个句子创建独立图片。"}
         </div>
       ) : (
         <button
@@ -2273,209 +2908,213 @@ function MusicPanel({
   const autoMatchActive =
     music === "AUTO_MATCH" || music.startsWith("AUTO_MATCH:");
   const selectedLibraryLabel = music.startsWith("AUTO_MATCH:")
-    ? (libraryTracks.find(
-        (track) => `AUTO_MATCH:${track.fileName}` === music,
-      )?.title ?? "自动选择（根据文案主题）")
+    ? (libraryTracks.find((track) => `AUTO_MATCH:${track.fileName}` === music)
+        ?.title ?? "自动选择（根据文案主题）")
     : "自动选择（根据文案主题）";
 
   return (
     <div className="grid gap-4">
       <div>
-      <h2 className="font-black">背景音乐</h2>
-      <p className="mt-1 text-xs leading-5 text-black/40">
-        创建项目后可以上传已获授权的背景音乐，渲染时会自动压低音乐突出人声。
-      </p>
-      <div className="mt-4 grid gap-3">
-        <button
-          type="button"
-          onClick={() => setMusic("NONE")}
-          className={`rounded-2xl border p-4 text-left ${
-            music === "NONE"
-              ? "border-[#14bdc7] bg-cyan-50"
-              : "border-black/[0.06]"
-          }`}
-        >
-          <strong className="text-sm">♫ 暂不添加</strong>
-          <p className="mt-1 text-xs text-black/40">保持纯净旁白</p>
-        </button>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setMusic("AUTO_MATCH")}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setMusic("AUTO_MATCH");
-            }
-          }}
-          className={`rounded-2xl border p-4 text-left ${
-            autoMatchActive
-              ? "border-[#14bdc7] bg-cyan-50"
-              : "border-black/[0.06]"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <strong className="text-sm">♫ 自动匹配</strong>
-              <p className="mt-1 text-xs text-black/40">
-                根据文案主题从音乐库自动选曲，也可以手动指定一首
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setLibraryRootDraft(libraryRoot);
-                setLibrarySettingsError("");
-                setLibrarySettingsOpen(true);
-              }}
-              className="shrink-0 rounded-lg border border-black/10 bg-white px-2.5 py-1.5 text-[11px] font-black text-black/55 transition hover:bg-[#f7f9fa]"
-            >
-              设置
-            </button>
-          </div>
-          {autoMatchActive && (
-            <div
-              ref={libraryMenuRef}
-              className="mt-3"
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
+        <h2 className="font-black">背景音乐</h2>
+        <p className="mt-1 text-xs leading-5 text-black/40">
+          创建项目后可以上传已获授权的背景音乐，渲染时会自动压低音乐突出人声。
+        </p>
+        <div className="mt-4 grid gap-3">
+          <button
+            type="button"
+            onClick={() => setMusic("NONE")}
+            className={`rounded-2xl border p-4 text-left ${
+              music === "NONE"
+                ? "border-[#14bdc7] bg-cyan-50"
+                : "border-black/[0.06]"
+            }`}
+          >
+            <strong className="text-sm">♫ 暂不添加</strong>
+            <p className="mt-1 text-xs text-black/40">保持纯净旁白</p>
+          </button>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setMusic("AUTO_MATCH")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setMusic("AUTO_MATCH");
+              }
+            }}
+            className={`rounded-2xl border p-4 text-left ${
+              autoMatchActive
+                ? "border-[#14bdc7] bg-cyan-50"
+                : "border-black/[0.06]"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <strong className="text-sm">♫ 自动匹配</strong>
+                <p className="mt-1 text-xs text-black/40">
+                  根据文案主题从音乐库自动选曲，也可以手动指定一首
+                </p>
+              </div>
               <button
                 type="button"
-                aria-haspopup="listbox"
-                aria-expanded={libraryMenuOpen}
-                onClick={() => setLibraryMenuOpen((open) => !open)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-black/[0.08] bg-white px-3 py-3 text-left text-sm font-bold outline-none transition hover:border-black/20"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setLibraryRootDraft(libraryRoot);
+                  setLibrarySettingsError("");
+                  setLibrarySettingsOpen(true);
+                }}
+                className="shrink-0 rounded-lg border border-black/10 bg-white px-2.5 py-1.5 text-[11px] font-black text-black/55 transition hover:bg-[#f7f9fa]"
               >
-                <span className="min-w-0 truncate">{selectedLibraryLabel}</span>
-                <span
-                  aria-hidden="true"
-                  className={`shrink-0 text-black/35 transition-transform ${
-                    libraryMenuOpen ? "rotate-180" : ""
-                  }`}
-                >
-                  ⌄
-                </span>
+                设置
               </button>
-              {libraryMenuOpen && (
-                <div
-                  role="listbox"
-                  aria-label="音乐库"
-                  className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_45px_rgb(15_23_42/15%)]"
+            </div>
+            {autoMatchActive && (
+              <div
+                ref={libraryMenuRef}
+                className="mt-3"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={libraryMenuOpen}
+                  onClick={() => setLibraryMenuOpen((open) => !open)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-black/[0.08] bg-white px-3 py-3 text-left text-sm font-bold outline-none transition hover:border-black/20"
                 >
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={music === "AUTO_MATCH"}
-                    onClick={() => {
-                      setMusic("AUTO_MATCH");
-                      setLibraryMenuOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-bold transition ${
-                      music === "AUTO_MATCH"
-                        ? "bg-cyan-50 text-cyan-900"
-                        : "hover:bg-[#f7f9fa]"
+                  <span className="min-w-0 truncate">
+                    {selectedLibraryLabel}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`shrink-0 text-black/35 transition-transform ${
+                      libraryMenuOpen ? "rotate-180" : ""
                     }`}
                   >
-                    自动选择（根据文案主题）
-                    {music === "AUTO_MATCH" && <span>✓</span>}
-                  </button>
-                  {libraryTracks.map((track) => {
-                    const selected = music === `AUTO_MATCH:${track.fileName}`;
-                    const previewing = previewTrack === track.fileName;
-                    return (
-                      <div
-                        key={track.id}
-                        className={`rounded-lg ${
-                          selected ? "bg-cyan-50" : ""
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 px-1">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={selected}
-                            onClick={() => {
-                              setMusic(`AUTO_MATCH:${track.fileName}`);
-                              setLibraryMenuOpen(false);
-                            }}
-                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left text-sm font-bold transition hover:bg-[#f7f9fa]"
-                          >
-                            <span className="min-w-0 truncate">
-                              {track.title}
-                            </span>
-                            {selected && <span>✓</span>}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPreviewTrack(previewing ? "" : track.fileName);
-                              setPreviewError("");
-                            }}
-                            className={`shrink-0 rounded-lg border px-2.5 py-2 text-[11px] font-black transition ${
-                              previewing
-                                ? "border-cyan-200 bg-cyan-50 text-cyan-700"
-                                : "border-black/10 bg-white text-black/55 hover:bg-[#f7f9fa]"
-                            }`}
-                          >
-                            {previewing ? "收起" : "▶ 试听"}
-                          </button>
+                    ⌄
+                  </span>
+                </button>
+                {libraryMenuOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="音乐库"
+                    className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-black/[0.08] bg-white p-2 shadow-[0_18px_45px_rgb(15_23_42/15%)]"
+                  >
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={music === "AUTO_MATCH"}
+                      onClick={() => {
+                        setMusic("AUTO_MATCH");
+                        setLibraryMenuOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-bold transition ${
+                        music === "AUTO_MATCH"
+                          ? "bg-cyan-50 text-cyan-900"
+                          : "hover:bg-[#f7f9fa]"
+                      }`}
+                    >
+                      自动选择（根据文案主题）
+                      {music === "AUTO_MATCH" && <span>✓</span>}
+                    </button>
+                    {libraryTracks.map((track) => {
+                      const selected = music === `AUTO_MATCH:${track.fileName}`;
+                      const previewing = previewTrack === track.fileName;
+                      return (
+                        <div
+                          key={track.id}
+                          className={`rounded-lg ${
+                            selected ? "bg-cyan-50" : ""
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 px-1">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => {
+                                setMusic(`AUTO_MATCH:${track.fileName}`);
+                                setLibraryMenuOpen(false);
+                              }}
+                              className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left text-sm font-bold transition hover:bg-[#f7f9fa]"
+                            >
+                              <span className="min-w-0 truncate">
+                                {track.title}
+                              </span>
+                              {selected && <span>✓</span>}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPreviewTrack(
+                                  previewing ? "" : track.fileName,
+                                );
+                                setPreviewError("");
+                              }}
+                              className={`shrink-0 rounded-lg border px-2.5 py-2 text-[11px] font-black transition ${
+                                previewing
+                                  ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+                                  : "border-black/10 bg-white text-black/55 hover:bg-[#f7f9fa]"
+                              }`}
+                            >
+                              {previewing ? "收起" : "▶ 试听"}
+                            </button>
+                          </div>
+                          {previewing && (
+                            <audio
+                              autoPlay
+                              controls
+                              preload="auto"
+                              className="h-8 w-full px-1 pb-1"
+                              src={`/api/music-library/audio?file=${encodeURIComponent(track.fileName)}`}
+                              onError={() =>
+                                setPreviewError(`试听加载失败：${track.title}`)
+                              }
+                            >
+                              <track kind="captions" />
+                            </audio>
+                          )}
                         </div>
-                        {previewing && (
-                          <audio
-                            autoPlay
-                            controls
-                            preload="auto"
-                            className="h-8 w-full px-1 pb-1"
-                            src={`/api/music-library/audio?file=${encodeURIComponent(track.fileName)}`}
-                            onError={() =>
-                              setPreviewError(`试听加载失败：${track.title}`)
-                            }
-                          >
-                            <track kind="captions" />
-                          </audio>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {previewError && (
-                <p className="mt-2 text-xs font-bold text-red-600">
-                  {previewError}
-                </p>
-              )}
-              {libraryStatus === "loading" && (
-                <p className="mt-2 text-xs text-black/40">正在读取音乐库…</p>
-              )}
-              {libraryStatus === "error" && (
-                <p className="mt-2 text-xs font-bold text-red-600">
-                  音乐库读取失败，请检查{libraryRoot ? ` ${libraryRoot} ` : "音乐库目录"}
-                  是否存在
-                </p>
-              )}
-              {libraryStatus === "ready" && libraryTracks.length === 0 && (
-                <p className="mt-2 text-xs font-bold text-amber-700">
-                  音乐库还没有音乐，自动匹配会先跳过配乐
-                </p>
-              )}
-            </div>
-          )}
+                      );
+                    })}
+                  </div>
+                )}
+                {previewError && (
+                  <p className="mt-2 text-xs font-bold text-red-600">
+                    {previewError}
+                  </p>
+                )}
+                {libraryStatus === "loading" && (
+                  <p className="mt-2 text-xs text-black/40">正在读取音乐库…</p>
+                )}
+                {libraryStatus === "error" && (
+                  <p className="mt-2 text-xs font-bold text-red-600">
+                    音乐库读取失败，请检查
+                    {libraryRoot ? ` ${libraryRoot} ` : "音乐库目录"}
+                    是否存在
+                  </p>
+                )}
+                {libraryStatus === "ready" && libraryTracks.length === 0 && (
+                  <p className="mt-2 text-xs font-bold text-amber-700">
+                    音乐库还没有音乐，自动匹配会先跳过配乐
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setMusic("UPLOAD")}
+            className={`rounded-2xl border p-4 text-left ${
+              music === "UPLOAD"
+                ? "border-[#14bdc7] bg-cyan-50"
+                : "border-black/[0.06]"
+            }`}
+          >
+            <strong className="text-sm">♫ 创建后上传</strong>
+            <p className="mt-1 text-xs text-black/40">支持本地授权音频文件</p>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setMusic("UPLOAD")}
-          className={`rounded-2xl border p-4 text-left ${
-            music === "UPLOAD"
-              ? "border-[#14bdc7] bg-cyan-50"
-              : "border-black/[0.06]"
-          }`}
-        >
-          <strong className="text-sm">♫ 创建后上传</strong>
-          <p className="mt-1 text-xs text-black/40">支持本地授权音频文件</p>
-        </button>
-      </div>
       </div>
       <AppDialog
         open={librarySettingsOpen}
@@ -2488,9 +3127,7 @@ function MusicPanel({
           label: "音乐库文件夹路径",
           value: libraryRootDraft,
           placeholder: "例如：E:\\codex\\素材库\\音乐库",
-          ...(librarySettingsError
-            ? { error: librarySettingsError }
-            : {}),
+          ...(librarySettingsError ? { error: librarySettingsError } : {}),
           onChange: setLibraryRootDraft,
         }}
         onConfirm={() => void saveMusicLibraryRoot()}

@@ -61,7 +61,7 @@ export function VoiceProfilePanel({
   const [saveError, setSaveError] = useState("");
   const [saveHint, setSaveHint] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const voiceEnabled = voiceStyle === "indextts2";
+  const voiceEnabled = voiceStyle !== "none";
   const uploadingNew = voiceEnabled && !selectedProfileId;
   const builtinProfiles = profiles.filter((profile) => profile.builtin);
   const customProfiles = profiles.filter((profile) => !profile.builtin);
@@ -81,7 +81,8 @@ export function VoiceProfilePanel({
   }, [referenceFile]);
 
   const selectProfile = (profileId: string) => {
-    setVoiceStyle("indextts2");
+    const profile = profiles.find((item) => item.id === profileId);
+    setVoiceStyle(profile?.provider ?? "local-clone");
     setSelectedProfileId(profileId);
     setReferenceFile(undefined);
     setConsentConfirmed(false);
@@ -136,9 +137,7 @@ export function VoiceProfilePanel({
       setProfilePendingRename(null);
       setRenameName("");
     } catch (error) {
-      setRenameError(
-        error instanceof Error ? error.message : "音色重命名失败",
-      );
+      setRenameError(error instanceof Error ? error.message : "音色重命名失败");
     } finally {
       setRenaming(false);
     }
@@ -163,7 +162,8 @@ export function VoiceProfilePanel({
           fileName: referenceFile.name,
           contentType,
           byteSize: referenceFile.size,
-          serviceUrl,
+          provider: voiceStyle === "none" ? "local-clone" : voiceStyle,
+          ...(serviceUrl.trim() ? { serviceUrl: serviceUrl.trim() } : {}),
           consentConfirmed,
         }),
       });
@@ -190,7 +190,7 @@ export function VoiceProfilePanel({
       }
 
       onProfileSaved(setupData.profile);
-      setVoiceStyle("indextts2");
+      setVoiceStyle(setupData.profile.provider ?? "local-clone");
       setSelectedProfileId(setupData.profile.id);
       setReferenceFile(undefined);
       setConsentConfirmed(false);
@@ -211,7 +211,7 @@ export function VoiceProfilePanel({
     <div>
       <h2 className="font-black">角色声音</h2>
       <p className="mt-1 text-xs leading-5 text-black/45">
-        上传一段清晰人声作为参考，IndexTTS2 会用它在配音板块朗读全部分镜。
+        内置音色使用 Qwen3-TTS，上传声音默认使用 Qwen3-TTS 克隆。
       </p>
 
       <VoiceProfileDropdown
@@ -267,14 +267,14 @@ export function VoiceProfilePanel({
         <button
           type="button"
           onClick={() => {
-            setVoiceStyle("indextts2");
+            setVoiceStyle("qwen3-tts-clone");
             setSelectedProfileId("");
           }}
           className={`rounded-lg px-3 py-2 text-xs font-black ${
             uploadingNew ? "bg-white shadow-sm" : "text-black/40"
           }`}
         >
-          上传新声音
+          上传新声音（Qwen3 克隆）
         </button>
         <button
           type="button"
@@ -360,8 +360,7 @@ export function VoiceProfilePanel({
           )}
 
           <div className="rounded-xl bg-cyan-50 p-3 text-xs leading-5 text-cyan-900">
-            保存后，创建项目时选择这个音色，配音板块就会用 IndexTTS2
-            在本机合成全部旁白。
+            保存后，创建项目时选择这个音色，配音板块会通过当前配音模型合成全部旁白。
           </div>
 
           <div className="rounded-xl border border-black/[0.06] p-3">
@@ -374,19 +373,18 @@ export function VoiceProfilePanel({
             </button>
             {advancedOpen && (
               <div className="mt-3 grid gap-3">
-              <label className="grid gap-2 text-xs font-bold">
-                IndexTTS2 本地服务
-                <input
-                  value={serviceUrl}
-                  onChange={(event) => setServiceUrl(event.target.value)}
-                  placeholder="http://127.0.0.1:7851"
-                  className="rounded-xl bg-[#f1f4f5] p-3 font-mono text-xs"
-                />
-              </label>
-              <p className="text-[11px] leading-4 text-black/40">
-                服务未启动时，先运行 D:\iwen-codex\IndexTTS2\start-service.ps1
-                再保存声音。
-              </p>
+                <label className="grid gap-2 text-xs font-bold">
+                  配音服务地址
+                  <input
+                    value={serviceUrl}
+                    onChange={(event) => setServiceUrl(event.target.value)}
+                    placeholder="https://your-voice-service.example"
+                    className="rounded-xl bg-[#f1f4f5] p-3 font-mono text-xs"
+                  />
+                </label>
+                <p className="text-[11px] leading-4 text-black/40">
+                  如果当前模型需要单独启动服务，请先启动服务再保存声音。
+                </p>
               </div>
             )}
           </div>

@@ -196,8 +196,7 @@ export async function PATCH(
       );
       if (!metadata.success) throw new Error("VOICE_PROFILE_INVALID");
 
-      const expectedStyle = "indextts2";
-      if (input.voiceStyle !== expectedStyle) {
+      if (input.voiceStyle !== metadata.data.provider) {
         throw new Error("VOICE_PROFILE_PROVIDER_MISMATCH");
       }
     }

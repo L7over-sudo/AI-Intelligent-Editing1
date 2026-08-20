@@ -51,6 +51,14 @@ describe("creative preferences storage", () => {
     ).toBeUndefined();
   });
 
+  it("restores the impact-caption template selection", () => {
+    expect(
+      parseStoredCreativePreferences(
+        JSON.stringify({ videoTemplate: "IMPACT_CAPTIONS" }),
+      )?.videoTemplate,
+    ).toBe("IMPACT_CAPTIONS");
+  });
+
   it("uses a versioned storage key", () => {
     expect(creativePreferencesStorageKey).toBe(
       "stickmotion:creative-preferences:v1",

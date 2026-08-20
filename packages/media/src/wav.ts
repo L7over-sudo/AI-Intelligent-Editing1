@@ -133,6 +133,7 @@ export function capInternalSilencePcmWav(
     maximumPauseMs?: number;
     windowMs?: number;
     minimumGapMs?: number;
+    crossfadeMs?: number;
   } = {},
 ): Uint8Array {
   const maximumPauseMs = Math.max(
@@ -141,6 +142,7 @@ export function capInternalSilencePcmWav(
   );
   const windowMs = Math.max(10, Math.round(options.windowMs ?? 20));
   const minimumGapMs = Math.max(40, Math.round(options.minimumGapMs ?? 80));
+  const crossfadeMs = Math.max(0, Math.round(options.crossfadeMs ?? 0));
   try {
     const parsed = parsePcmWav(audio);
     if (parsed.bitsPerSample !== 16) return audio;
@@ -174,6 +176,32 @@ export function capInternalSilencePcmWav(
         gap.endMs < durationMs && gap.endMs - gap.startMs > maximumPauseMs,
     );
     if (overlong.length === 0) return audio;
+
+    if (crossfadeMs > 0) {
+      let repaired = audio;
+      for (const gap of [...overlong].reverse()) {
+        const result = repairIntraSentencePausesPcmWav(
+          repaired,
+          [
+            { startMs: 0, endMs: gap.startMs, text: "speech" },
+            {
+              startMs: gap.endMs,
+              endMs: Math.max(gap.endMs + 1, durationMs),
+              text: "speech",
+            },
+          ],
+          {
+            minimumGapMs,
+            targetGapMs: maximumPauseMs,
+            maximumGapMs: Math.max(durationMs, gap.endMs - gap.startMs),
+            crossfadeMs,
+            repairPauseBoundaries: true,
+          },
+        );
+        repaired = result.audio;
+      }
+      return repaired;
+    }
 
     const keepRanges: Array<{ startMs: number; endMs: number }> = [];
     let cursorMs = 0;
@@ -252,6 +280,10 @@ export interface NormalizeNarrationPcmWavInput {
   narration: string;
   edgePaddingMs?: number;
   trailingPauseMs?: number;
+  /** Tiny boundary smoothing fade; long voice fades are intentionally avoided. */
+  fadeOutMs?: number;
+  /** Keep voiced samples when cue alignment ends before the acoustic tail. */
+  preserveAcousticTail?: boolean;
 }
 
 export interface NormalizedNarrationPcmWav {
@@ -276,6 +308,8 @@ export interface IntraSentencePauseRepairOptions {
   quietWindowMs?: number;
   /** Maximum quiet-window RMS as a fraction of the narration RMS. */
   quietRatio?: number;
+  /** Allow repairing long comma/clause pauses when the caller has trusted cues. */
+  repairPauseBoundaries?: boolean;
 }
 
 export interface IntraSentencePauseRepairResult {
@@ -346,6 +380,7 @@ export function repairIntraSentencePausesPcmWav(
   const crossfadeMs = Math.max(0, Math.round(options.crossfadeMs ?? 12));
   const quietWindowMs = Math.max(5, Math.round(options.quietWindowMs ?? 10));
   const quietRatio = Math.max(0.01, Math.min(1, options.quietRatio ?? 0.18));
+  const repairPauseBoundaries = options.repairPauseBoundaries ?? false;
 
   try {
     let parsed = parsePcmWav(audio);
@@ -372,7 +407,7 @@ export function repairIntraSentencePausesPcmWav(
       if (
         sourceGapMs < minimumGapMs ||
         sourceGapMs > maximumGapMs ||
-        endsWithPauseBoundary(previous.text)
+        (!repairPauseBoundaries && endsWithPauseBoundary(previous.text))
       ) {
         continue;
       }
@@ -562,6 +597,8 @@ export function normalizeNarrationPcmWav({
   narration,
   edgePaddingMs = 60,
   trailingPauseMs,
+  fadeOutMs = 8,
+  preserveAcousticTail = false,
 }: NormalizeNarrationPcmWavInput): NormalizedNarrationPcmWav {
   const sourceDurationMs = wavDurationMs(audio);
   const validCues = cues.filter(
@@ -585,7 +622,17 @@ export function normalizeNarrationPcmWav({
   const firstCueMs = Math.min(...validCues.map((cue) => cue.startMs));
   const lastCueMs = Math.max(...validCues.map((cue) => cue.endMs));
   const trimStartMs = Math.max(0, firstCueMs - edgePaddingMs);
-  const trimEndMs = Math.min(sourceDurationMs, lastCueMs + edgePaddingMs);
+  // Subtitle alignment can end early when the last phrase has no clean
+  // acoustic boundary. Callers that trust the audio boundary can opt into
+  // preserving voiced samples instead of trimming at the last cue.
+  const acousticEndMs = preserveAcousticTail
+    ? Math.max(
+        lastCueMs,
+        sourceDurationMs -
+          Math.max(0, pcmWavTrailingSilenceMs(audio) ?? 0),
+      )
+    : lastCueMs;
+  const trimEndMs = Math.min(sourceDurationMs, acousticEndMs + edgePaddingMs);
   if (trimEndMs <= trimStartMs) {
     return {
       audio,
@@ -599,7 +646,7 @@ export function normalizeNarrationPcmWav({
 
   const content = fadeOutPcmWav(
     slicePcmWav(audio, trimStartMs, trimEndMs),
-    Math.min(40, edgePaddingMs),
+    Math.min(Math.max(0, fadeOutMs), edgePaddingMs),
   );
   const contentDurationMs = wavDurationMs(content) ?? trimEndMs - trimStartMs;
   const trimmedCues = validCues.map((cue) => {
@@ -708,6 +755,42 @@ export function pcmWavTailRms(
     );
     const startOffset = parsed.data.byteLength - tailFrames * parsed.blockAlign;
     return rmsOfPcm16(parsed.data.subarray(startOffset));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Returns the first sustained speech onset, ignoring a short provider click. */
+export function pcmWavLeadingSilenceMs(
+  audio: Uint8Array,
+  options: { windowMs?: number; sustainedWindows?: number } = {},
+): number | undefined {
+  try {
+    const parsed = parsePcmWav(audio);
+    if (parsed.bitsPerSample !== 16) return undefined;
+    const durationMs = Math.round(
+      (parsed.data.byteLength / parsed.byteRate) * 1_000,
+    );
+    const windowMs = Math.max(5, options.windowMs ?? 10);
+    const sustainedWindows = Math.max(2, options.sustainedWindows ?? 4);
+    const overallRms = pcmWavOverallRms(audio) ?? 0;
+    const activeThreshold = Math.max(90, overallRms * 0.055);
+    const values: number[] = [];
+    for (let atMs = 0; atMs < durationMs; atMs += windowMs) {
+      values.push(
+        pcm16WindowRms(parsed, atMs, Math.min(durationMs, atMs + windowMs)),
+      );
+    }
+    for (let index = 0; index <= values.length - sustainedWindows; index += 1) {
+      if (
+        values
+          .slice(index, index + sustainedWindows)
+          .every((value) => value > activeThreshold)
+      ) {
+        return index * windowMs;
+      }
+    }
+    return durationMs;
   } catch {
     return undefined;
   }
@@ -849,7 +932,7 @@ export function alignSubtitleCueStartsToPcmWav(
     const radiusMs = Math.max(80, options.searchRadiusMs ?? 350);
     const windowMs = Math.max(10, options.windowMs ?? 20);
     const overallRms = pcmWavOverallRms(audio) ?? 0;
-    // IndexTTS can emit a short, loud pre-roll click before the actual voice.
+    // Local voice providers can emit a short, loud pre-roll click before the actual voice.
     // A threshold derived only from the whole clip treats that click as the
     // onset, which makes the first subtitle lead the spoken words. Estimate a
     // noise floor from the quietest windows and require a clear rise above it.
@@ -866,11 +949,11 @@ export function alignSubtitleCueStartsToPcmWav(
       sortedWindowRms[
         Math.floor(Math.max(0, sortedWindowRms.length - 1) * 0.05)
       ] ?? 0;
-    const quietThreshold = Math.max(90, noiseFloor * 4);
+    const quietThreshold = Math.max(90, noiseFloor * 1.5);
     const activeThreshold = Math.max(
-      220,
-      overallRms * 0.12,
-      quietThreshold * 1.5,
+      320,
+      overallRms * 0.18,
+      quietThreshold * 2,
     );
     const firstSustainedOnsetMs = (() => {
       const firstSearchRadiusMs = Math.max(
@@ -882,7 +965,13 @@ export function alignSubtitleCueStartsToPcmWav(
         Math.max(firstSearchRadiusMs, cues[0]!.startMs + firstSearchRadiusMs),
       );
       const sustainedWindows = 5;
-      const quietWindowsBeforeOnset = 3;
+      const initialContinuityWindows = 10;
+      const initialActiveWindows = windowRmsValues
+        .slice(0, initialContinuityWindows)
+        .filter((value) => value >= activeThreshold).length;
+      const startsWithContinuousSpeech =
+        initialActiveWindows >= initialContinuityWindows - 1;
+      const quietWindowsBeforeOnset = 4;
       for (let atMs = 0; atMs <= searchEndMs; atMs += windowMs) {
         const startIndex = Math.round(atMs / windowMs);
         const endIndex = startIndex + sustainedWindows;
@@ -894,10 +983,18 @@ export function alignSubtitleCueStartsToPcmWav(
         // At the beginning of a clean clip there is no preceding quiet run;
         // accept a genuinely sustained onset at zero. Otherwise require a
         // short quiet run so an isolated pre-roll click cannot win.
-        const hasQuietRun = windowRmsValues
-          .slice(Math.max(0, startIndex - quietWindowsBeforeOnset), startIndex)
-          .every((value) => value <= quietThreshold);
-        if (startIndex === 0 || hasQuietRun) return atMs;
+        const quietRun = windowRmsValues.slice(
+          Math.max(0, startIndex - quietWindowsBeforeOnset),
+          startIndex,
+        );
+        const hasQuietRun =
+          quietRun.filter((value) => value <= quietThreshold).length >= 2;
+        if (
+          (startIndex === 0 && startsWithContinuousSpeech) ||
+          (startIndex > 0 && hasQuietRun)
+        ) {
+          return atMs;
+        }
       }
       return undefined;
     })();

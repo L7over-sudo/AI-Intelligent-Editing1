@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   prepareStoredSubtitleCues,
   reconcileSubtitleCueTimings,
+  subtitlePresentationDelayMs,
 } from "./subtitle-timing";
 
 describe("prepareStoredSubtitleCues", () => {
-  it("preserves PCM-aligned cue starts instead of making subtitles run early", () => {
+  it("delays PCM-aligned cue starts so subtitles do not appear before speech", () => {
     expect(
       prepareStoredSubtitleCues(
         [
@@ -20,9 +21,13 @@ describe("prepareStoredSubtitleCues", () => {
         4_195,
       ),
     ).toEqual([
-      { startMs: 0, endMs: 2_135, text: "很多关系不是坏在你说了假话" },
       {
-        startMs: 2_135,
+        startMs: subtitlePresentationDelayMs,
+        endMs: 2_135 + subtitlePresentationDelayMs,
+        text: "很多关系不是坏在你说了假话",
+      },
+      {
+        startMs: 2_135 + subtitlePresentationDelayMs,
         endMs: 4_195,
         text: "而是坏在你把不该说的真话",
       },

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { wavDurationMs } from "@stickmotion/media";
+import {
+  pcmWavLeadingSilenceMs,
+  pcmWavTrailingSilenceMs,
+  wavDurationMs,
+} from "@stickmotion/media";
 
 import {
   capWavTrailingSilence,
   finalizeSceneSubtitleCues,
   maximumSceneTrailingSilenceMs,
+  normalizeSceneVoiceClip,
   partitionContinuousVoice,
   proportionalSceneDurationsMs,
   resolveVoiceServiceUrl,
@@ -14,6 +19,37 @@ import {
   voiceSubtitleCues,
   voiceTextForScene,
 } from "./voice";
+
+function wavWithRegions(
+  regions: ReadonlyArray<{ durationMs: number; amplitude: number }>,
+): Uint8Array {
+  const sampleRate = 8_000;
+  const samples = regions.flatMap((region) =>
+    Array.from(
+      { length: Math.round((sampleRate * region.durationMs) / 1_000) },
+      () => region.amplitude,
+    ),
+  );
+  const output = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(output.buffer);
+  const text = new TextEncoder();
+  output.set(text.encode("RIFF"), 0);
+  view.setUint32(4, 36 + samples.length * 2, true);
+  output.set(text.encode("WAVEfmt "), 8);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  output.set(text.encode("data"), 36);
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) =>
+    view.setInt16(44 + index * 2, sample, true),
+  );
+  return output;
+}
 
 describe("voiceTextForScene", () => {
   it("uses narration first", () => {
@@ -68,13 +104,13 @@ describe("resolveVoiceServiceUrl", () => {
     );
   });
 
-  it("throws when no loopback URL is configured", () => {
+  it("throws when no service URL is configured", () => {
     expect(() => resolveVoiceServiceUrl(undefined, undefined)).toThrow(
       "VOICE_PROVIDER_UNAVAILABLE",
     );
-    expect(() =>
-      resolveVoiceServiceUrl("http://evil.example:7851", undefined),
-    ).toThrow();
+    expect(resolveVoiceServiceUrl("https://voice.example/api", undefined)).toBe(
+      "https://voice.example/api",
+    );
   });
 });
 
@@ -125,10 +161,61 @@ describe("finalizeSceneSubtitleCues", () => {
 
 describe("maximumSceneTrailingSilenceMs", () => {
   it("keeps sentence endings longer than comma breaks", () => {
-    expect(maximumSceneTrailingSilenceMs("先把问题写下来。")).toBe(160);
-    expect(maximumSceneTrailingSilenceMs("继续讲方法，")).toBe(140);
-    expect(maximumSceneTrailingSilenceMs("把任务拆成小动作")).toBe(140);
-    expect(maximumSceneTrailingSilenceMs("结果如何？")).toBe(160);
+    expect(maximumSceneTrailingSilenceMs("先把问题写下来。")).toBe(140);
+    expect(maximumSceneTrailingSilenceMs("继续讲方法，")).toBe(80);
+    expect(maximumSceneTrailingSilenceMs("把任务拆成小动作")).toBe(80);
+    expect(maximumSceneTrailingSilenceMs("结果如何？")).toBe(140);
+  });
+});
+
+describe("normalizeSceneVoiceClip", () => {
+  it("removes long pre-roll and smoothly shortens an overlong clause pause", () => {
+    const source = wavWithRegions([
+      { durationMs: 420, amplitude: 0 },
+      { durationMs: 500, amplitude: 4_000 },
+      { durationMs: 360, amplitude: 0 },
+      { durationMs: 500, amplitude: 4_000 },
+    ]);
+    const normalized = normalizeSceneVoiceClip(
+      source,
+      [
+        { startMs: 420, endMs: 920, text: "先说第一句" },
+        { startMs: 1_280, endMs: 1_780, text: "再说第二句" },
+      ],
+      "先说第一句,再说第二句,",
+    );
+
+    expect(normalized.trimStartMs).toBe(360);
+    expect(normalized.cues[0]?.startMs).toBe(60);
+    expect(normalized.durationMs).toBeGreaterThan(1_250);
+    expect(normalized.durationMs).toBeLessThan(1_450);
+    expect(pcmWavTrailingSilenceMs(normalized.audio)).toBeGreaterThanOrEqual(50);
+  });
+
+  it("keeps comma-split scene seams natural without clipping the tail", () => {
+    const first = normalizeSceneVoiceClip(
+      wavWithRegions([
+        { durationMs: 80, amplitude: 0 },
+        { durationMs: 500, amplitude: 4_000 },
+        { durationMs: 300, amplitude: 0 },
+      ]),
+      [{ startMs: 80, endMs: 580, text: "你每次找人办事," }],
+      "你每次找人办事,",
+    );
+    const second = normalizeSceneVoiceClip(
+      wavWithRegions([
+        { durationMs: 90, amplitude: 0 },
+        { durationMs: 500, amplitude: 4_000 },
+      ]),
+      [{ startMs: 90, endMs: 590, text: "是不是先说麻烦您了," }],
+      "是不是先说麻烦您了,",
+    );
+
+    const seamMs =
+      (pcmWavTrailingSilenceMs(first.audio) ?? 0) +
+      (pcmWavLeadingSilenceMs(second.audio) ?? 0);
+    expect(seamMs).toBeGreaterThanOrEqual(160);
+    expect(seamMs).toBeLessThanOrEqual(240);
   });
 });
 

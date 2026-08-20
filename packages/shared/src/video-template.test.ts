@@ -3,9 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   getKnowledgeBoardHeaderDecorationLayout,
   getKnowledgeBoardLayout,
+  videoTemplateSchema,
 } from "./video-template";
 
 describe("knowledge board video template", () => {
+  it("includes the impact-caption template as a trusted template id", () => {
+    expect(videoTemplateSchema.parse("IMPACT_CAPTIONS")).toBe(
+      "IMPACT_CAPTIONS",
+    );
+  });
   it.each([
     [1920, 1080],
     [1080, 1920],

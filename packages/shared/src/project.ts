@@ -133,6 +133,16 @@ export const createProjectSchema = z
         message: "知识板项目固定使用 21:9 图片比例",
       });
     }
+    if (
+      project.subtitleStyle.videoTemplate === "IMPACT_CAPTIONS" &&
+      project.aspectRatio !== "LANDSCAPE"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["aspectRatio"],
+        message: "爆点大字模板固定使用横屏比例",
+      });
+    }
   });
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

@@ -50,13 +50,15 @@ import {
   projectCoverDisplayState,
   type ProjectCoverAsset,
 } from "./project-cover-assets";
-import { canCancelRenderJob, canDeleteRenderJob } from "./render-job-actions";
+import {
+  canCancelRenderJob,
+  canDeleteRenderJob,
+  selectedRenderOutputAfterRefresh,
+} from "./render-job-actions";
 import {
   failedVoiceSceneIds,
   latestVoiceJobAttempts,
 } from "./voice-job-actions";
-import type { VoiceProfileSummary } from "./voice-profile-dropdown";
-import { ToolbarVoicePicker } from "./toolbar-voice-picker";
 import {
   renderProgressPresentation,
   renderProgressSteps,
@@ -85,6 +87,7 @@ import {
   type SearchPlatform,
   type SearchResponse,
 } from "../search-bridge";
+import { readSearchApiPayload } from "./search-api-response";
 
 type ImageModel =
   | "gpt-image-2"
@@ -367,6 +370,25 @@ const navigation: Array<{
   { id: "projects", icon: "▦", label: "项目" },
   { id: "cover", icon: "▣", label: "封面" },
   {
+    id: "templates",
+    icon: (
+      <svg
+        aria-hidden="true"
+        className="size-6"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M8 4v16M8 9h13" />
+      </svg>
+    ),
+    label: "模板",
+  },
+  {
     id: "chat",
     icon: (
       <svg
@@ -646,18 +668,20 @@ export function UnifiedWorkspace() {
 
       <div
         className={`${
-          view === "create" ? "block" : "hidden"
+          view === "create" || view === "templates" ? "block" : "hidden"
         } h-full overflow-hidden lg:pl-24`}
       >
         <CreativeStudio
           onProjectCreated={handleProjectCreated}
           onOpenSettings={() => setSettingsOpen(true)}
+          mode={view === "templates" ? "templates" : "create"}
+          onOpenCreate={() => openView("create")}
         />
       </div>
 
       <main
         className={`${
-          view === "create" ? "hidden" : "block"
+          view === "create" || view === "templates" ? "hidden" : "block"
         } h-dvh min-w-0 overflow-hidden overflow-x-hidden px-0 pb-0 pt-0 lg:pl-24`}
       >
         <div className="flex h-full min-w-0 w-full max-w-none flex-col overflow-hidden rounded-none bg-white p-5 shadow-none md:p-7">
@@ -824,7 +848,7 @@ function WorkspaceRail({
   onOpenSettings: () => void;
 }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-6 items-center border-t border-[#d8e5f7] bg-gradient-to-b from-[#edf5ff] via-[#f6f9ff] to-[#fff1f6] px-2 text-[#58708f] shadow-xl lg:inset-y-0 lg:left-0 lg:right-auto lg:flex lg:h-auto lg:w-24 lg:flex-col lg:justify-start lg:gap-1 lg:border-r lg:border-t-0 lg:py-5">
+    <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-7 items-center border-t border-[#d8e5f7] bg-gradient-to-b from-[#edf5ff] via-[#f6f9ff] to-[#fff1f6] px-2 text-[#58708f] shadow-xl lg:inset-y-0 lg:left-0 lg:right-auto lg:flex lg:h-auto lg:w-24 lg:flex-col lg:justify-start lg:gap-1 lg:border-r lg:border-t-0 lg:py-5">
       <button
         type="button"
         onClick={() => onOpen("create")}
@@ -895,6 +919,7 @@ function WorkspaceHeader({
     create: ["开始创作", "输入文案并生成视频"],
     projects: ["项目中心", "管理本机保存的视频项目"],
     cover: ["封面", "管理项目封面"],
+    templates: ["视频模板", "管理视频画面结构与文字样式"],
     chat: ["对话", "和 AI 一起梳理脚本、分镜与封面想法"],
     search: ["搜索", "跨平台检索内容、趋势与创作参考"],
     storyboard: ["分镜编辑", "调整旁白、字幕、画面和镜头顺序"],
@@ -2245,7 +2270,7 @@ function SearchWorkspacePanel() {
         const statusResponse = await fetch("/api/research/status", {
           cache: "no-store",
         });
-        const payload: unknown = await statusResponse.json();
+        const payload = await readSearchApiPayload(statusResponse);
         if (!statusResponse.ok) {
           const apiError = researchApiErrorSchema.safeParse(payload);
           throw new Error(
@@ -2297,7 +2322,7 @@ function SearchWorkspacePanel() {
         `/api/research/search?${params.toString()}`,
         { cache: "no-store" },
       );
-      const payload: unknown = await searchResponse.json();
+      const payload = await readSearchApiPayload(searchResponse);
       if (!searchResponse.ok) {
         const apiError = researchApiErrorSchema.safeParse(payload);
         if (apiError.success) {
@@ -2337,7 +2362,7 @@ function SearchWorkspacePanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ platform: "xiaohongshu", action }),
       });
-      const payload: unknown = await authorizationResponse.json();
+      const payload = await readSearchApiPayload(authorizationResponse);
       if (!authorizationResponse.ok) {
         const apiError = researchApiErrorSchema.safeParse(payload);
         throw new Error(
@@ -3378,71 +3403,13 @@ function ProjectPanel({
   const [expandedSceneIds, setExpandedSceneIds] = useState<string[]>([]);
   const [lightboxAssetId, setLightboxAssetId] = useState<string | null>(null);
   const [selectedRenderOutputId, setSelectedRenderOutputId] = useState("");
+  const latestRenderOutputRef = useRef({ projectId: "", outputId: "" });
   const [pendingRenderDeletion, setPendingRenderDeletion] = useState<{
     jobId: string;
     hasOutput: boolean;
   } | null>(null);
-  const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummary[]>([]);
-  const [voiceProfilesLoading, setVoiceProfilesLoading] = useState(true);
-  const [voiceProfileLoadError, setVoiceProfileLoadError] = useState("");
-  const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("");
   const [projectWorkspaceStateLoadedFor, setProjectWorkspaceStateLoadedFor] =
     useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setVoiceProfilesLoading(true);
-    setVoiceProfileLoadError("");
-    void fetch("/api/voice-profiles")
-      .then(async (response) => {
-        const raw: unknown = await response.json();
-        if (!response.ok) {
-          const errorData = apiErrorResponseSchema.safeParse(raw);
-          throw new Error(
-            errorData.success && errorData.data.error
-              ? errorData.data.error
-              : "音色列表加载失败",
-          );
-        }
-        const parsed = z
-          .object({
-            profiles: z.array(
-              z.object({
-                id: z.string(),
-                name: z.string(),
-                assetId: z.string(),
-                fileName: z.string(),
-                createdAt: z.string(),
-                builtin: z.boolean(),
-                available: z.boolean(),
-              }),
-            ),
-          })
-          .safeParse(raw);
-        if (!parsed.success) throw new Error("音色列表数据格式无效");
-        return parsed.data.profiles;
-      })
-      .then((profiles) => {
-        if (cancelled) return;
-        setVoiceProfiles(profiles);
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return;
-        setVoiceProfileLoadError(
-          reason instanceof Error ? reason.message : "音色列表加载失败",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setVoiceProfilesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    setSelectedVoiceProfileId(project?.voiceProfileId ?? "");
-  }, [project?.id, project?.voiceProfileId]);
 
   const latestRender = project?.jobs.find((job) => job.type === "RENDER");
   const latestScriptJob = project?.jobs.find((job) => job.type === "SCRIPT");
@@ -3519,14 +3486,13 @@ function ProjectPanel({
           )
         : {},
     );
-    setSelectedRenderOutputId(
-      stored &&
-        project.renderOutputs.some(
-          (output) => output.id === stored.selectedRenderOutputId,
-        )
-        ? stored.selectedRenderOutputId
-        : (project.renderOutputs[0]?.id ?? ""),
-    );
+    // Opening a project should always show its newest completed render. Older
+    // versions remain available in history and can still be selected manually.
+    setSelectedRenderOutputId(project.renderOutputs[0]?.id ?? "");
+    latestRenderOutputRef.current = {
+      projectId: project.id,
+      outputId: project.renderOutputs[0]?.id ?? "",
+    };
     setProjectWorkspaceStateLoadedFor(project.id);
   }, [project?.id]);
 
@@ -3558,12 +3524,17 @@ function ProjectPanel({
         return current;
       return Object.fromEntries(retainedEntries);
     });
-    setSelectedRenderOutputId((current) => {
-      if (project.renderOutputs.some((output) => output.id === current)) {
-        return current;
-      }
-      return project.renderOutputs[0]?.id ?? "";
-    });
+    const previousLatest = latestRenderOutputRef.current;
+    const previousLatestId =
+      previousLatest.projectId === project.id ? previousLatest.outputId : "";
+    const outputIds = project.renderOutputs.map((output) => output.id);
+    latestRenderOutputRef.current = {
+      projectId: project.id,
+      outputId: outputIds[0] ?? "",
+    };
+    setSelectedRenderOutputId((current) =>
+      selectedRenderOutputAfterRefresh(current, outputIds, previousLatestId),
+    );
   }, [
     project?.renderOutputs,
     project?.scenes,
@@ -3733,38 +3704,6 @@ function ProjectPanel({
       }
       return new Response(null, { status: 202 });
     }, "全部配音已按当前音色的原生朗读方式加入生成队列");
-  }
-
-  async function saveProjectVoiceProfile(profileId: string) {
-    if (!profileId) {
-      setError("请先选择一个音色");
-      return;
-    }
-    if (profileId === selectedProject.voiceProfileId) {
-      setMessage("当前项目已经使用这个音色");
-      return;
-    }
-    const activeMediaJob = selectedProject.jobs.some(
-      (job) =>
-        ["VOICE", "AUDIO_MIX", "RENDER"].includes(job.type) &&
-        ["QUEUED", "RUNNING", "RETRYING"].includes(job.status),
-    );
-    if (activeMediaJob) {
-      setError("当前有配音、混音或渲染任务进行中，请完成后再切换音色");
-      return;
-    }
-    await runAction(
-      () =>
-        fetch(`/api/projects/${selectedProject.id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            voiceStyle: "indextts2",
-            voiceProfileId: profileId,
-          }),
-        }),
-      "当前项目音色已保存；现有配音未改变",
-    );
   }
 
   async function retryFailedVoices() {
@@ -4062,19 +4001,6 @@ function ProjectPanel({
                 >
                   一键生成全部
                 </button>
-                <ToolbarVoicePicker
-                  profiles={voiceProfiles}
-                  selectedProfileId={selectedVoiceProfileId}
-                  loading={
-                    loading ||
-                    voiceProfilesLoading ||
-                    Boolean(voiceProfileLoadError)
-                  }
-                  onSelect={(profileId) => {
-                    setSelectedVoiceProfileId(profileId);
-                    void saveProjectVoiceProfile(profileId);
-                  }}
-                />
                 <button
                   type="button"
                   disabled={loading || project.scenes.length === 0}

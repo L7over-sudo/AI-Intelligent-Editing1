@@ -13,6 +13,7 @@ import {
   mutePcmWavBeforeMs,
   narrationPauseAfterMs,
   normalizeNarrationPcmWav,
+  pcmWavLeadingSilenceMs,
   pcmWavTrailingSilenceMs,
   repairAbruptWavBoundaries,
   repairIntraSentencePausesPcmWav,
@@ -154,6 +155,24 @@ describe("interSceneNarrationPauseMs", () => {
 });
 
 describe("voice tail protection", () => {
+  it("finds sustained speech after leading silence", () => {
+    const source = makePcmWavWithRegions([
+      { durationMs: 400, amplitude: 0 },
+      { durationMs: 500, amplitude: 4_000 },
+    ]);
+    expect(pcmWavLeadingSilenceMs(source)).toBeGreaterThanOrEqual(390);
+    expect(pcmWavLeadingSilenceMs(source)).toBeLessThanOrEqual(410);
+  });
+
+  it("ignores a short provider click before speech", () => {
+    const source = makePcmWavWithRegions([
+      { durationMs: 20, amplitude: 12_000 },
+      { durationMs: 280, amplitude: 0 },
+      { durationMs: 500, amplitude: 4_000 },
+    ]);
+    expect(pcmWavLeadingSilenceMs(source)).toBeGreaterThanOrEqual(290);
+  });
+
   it("finds a low-energy point between two spoken regions", () => {
     const source = makePcmWavWithRegions([
       { durationMs: 500, amplitude: 4_000 },
@@ -256,6 +275,21 @@ describe("capInternalSilencePcmWav", () => {
     expect(wavDurationMs(capped)).toBe(660); // 200 + 160 + 200 + 100
   });
 
+  it("can shorten an internal pause with a smooth crossfade", () => {
+    const source = makePcmWavWithRegions([
+      { durationMs: 200, amplitude: 4_000 },
+      { durationMs: 440, amplitude: 0 },
+      { durationMs: 200, amplitude: 4_000 },
+    ]);
+    const capped = capInternalSilencePcmWav(source, {
+      maximumPauseMs: 100,
+      minimumGapMs: 180,
+      crossfadeMs: 8,
+    });
+    expect(wavDurationMs(capped)).toBeLessThan(520);
+    expect(wavDurationMs(capped)).toBeGreaterThanOrEqual(490);
+  });
+
   it("leaves pauses within the limit unchanged", () => {
     const source = makePcmWavWithRegions([
       { durationMs: 200, amplitude: 4_000 },
@@ -319,6 +353,22 @@ describe("subtitle acoustic alignment", () => {
 
     expect(cues[0]?.startMs).toBeGreaterThanOrEqual(300);
     expect(cues[0]?.startMs).toBeLessThanOrEqual(340);
+  });
+
+  it("ignores a provider burst before a long low-level gap", () => {
+    const audio = makePcmWavWithRegions([
+      { durationMs: 60, amplitude: 12_000 },
+      { durationMs: 480, amplitude: 280 },
+      { durationMs: 900, amplitude: 1_500 },
+    ]);
+    const cues = alignSubtitleCueStartsToPcmWav(
+      audio,
+      [{ startMs: 0, endMs: 1_440, text: "first" }],
+      { firstCueStrategy: "acoustic", firstSearchRadiusMs: 800 },
+    );
+
+    expect(cues[0]?.startMs).toBeGreaterThanOrEqual(520);
+    expect(cues[0]?.startMs).toBeLessThanOrEqual(560);
   });
 
   it("can correct a provider first cue that is later than the acoustic onset", () => {
@@ -444,6 +494,23 @@ describe("narration audio cleanup", () => {
     expect(result.durationMs).toBe(1_220);
   });
 
+  it("can preserve voiced audio when the final cue ends early", () => {
+    const result = normalizeNarrationPcmWav({
+      audio: makePcmWavWithRegions([
+        { durationMs: 300, amplitude: 0 },
+        { durationMs: 1_200, amplitude: 4_000 },
+        { durationMs: 120, amplitude: 0 },
+      ]),
+      cues: [{ startMs: 300, endMs: 800, text: "整句旁白" }],
+      narration: "整句旁白，",
+      trailingPauseMs: 0,
+      preserveAcousticTail: true,
+    });
+
+    expect(result.trimEndMs).toBeGreaterThan(1_500);
+    expect(result.durationMs).toBeGreaterThan(1_200);
+  });
+
   it("compresses only a quiet unpunctuated gap and shifts later cues with the audio", () => {
     const audio = makePcmWavWithRegions([
       { durationMs: 800, amplitude: 4_000 },
@@ -482,6 +549,32 @@ describe("narration audio cleanup", () => {
       { startMs: 0, endMs: 800, text: "上一句。" },
       { startMs: 980, endMs: 2_000, text: "下一句。" },
     ]);
+  });
+
+  it("can repair a long comma pause when trusted cue boundaries opt in", () => {
+    const audio = makePcmWavWithRegions([
+      { durationMs: 400, amplitude: 4_000 },
+      { durationMs: 440, amplitude: 0 },
+      { durationMs: 400, amplitude: 4_000 },
+    ]);
+    const result = repairIntraSentencePausesPcmWav(
+      audio,
+      [
+        { startMs: 0, endMs: 400, text: "回想一下," },
+        { startMs: 840, endMs: 1_240, text: "你每次找人办事," },
+      ],
+      {
+        minimumGapMs: 180,
+        targetGapMs: 100,
+        maximumGapMs: 650,
+        crossfadeMs: 8,
+        repairPauseBoundaries: true,
+      },
+    );
+
+    expect(result.repairedPauseCount).toBe(1);
+    expect(result.removedMs).toBeGreaterThan(300);
+    expect(wavDurationMs(result.audio)).toBeLessThan(950);
   });
 
   it("uses fine-grained pause cues without splitting the displayed subtitle cue", () => {

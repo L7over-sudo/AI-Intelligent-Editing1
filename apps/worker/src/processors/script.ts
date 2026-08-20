@@ -5,10 +5,13 @@ import {
   getStoryboardDuration,
   scriptGenerationInputSchema,
   subtitleStyleSchema,
+  type Storyboard,
   type ScriptGenerationInput,
+  type VideoTemplate,
 } from "@stickmotion/shared";
 
 import { LocalStoryboardProvider } from "../services/local-storyboard-provider";
+import { applyAutomaticSoundEffects } from "../services/automatic-sound-effects";
 import { synchronizeProjectSoundEffects } from "../services/sound-effect-library";
 import type { StoryboardProvider } from "../services/storyboard-provider";
 
@@ -23,6 +26,15 @@ export function buildReadyProjectUpdate(duration: number) {
     targetDuration: duration,
     status: "READY" as const,
   };
+}
+
+export function applyTemplateSoundEffects(
+  storyboard: Storyboard,
+  videoTemplate: VideoTemplate,
+): Storyboard {
+  return videoTemplate === "IMPACT_CAPTIONS"
+    ? applyAutomaticSoundEffects(storyboard)
+    : storyboard;
 }
 
 export function createScriptProcessor(
@@ -83,6 +95,10 @@ export function createScriptProcessor(
         };
         storyboardSource = { ...storyboardSource, scenes };
       }
+      storyboardSource = applyTemplateSoundEffects(
+        storyboardSource,
+        videoTemplate,
+      );
       const storyboard = storyboardSource;
       await localJob.updateProgress(80);
       const duration = Math.ceil(getStoryboardDuration(storyboard));

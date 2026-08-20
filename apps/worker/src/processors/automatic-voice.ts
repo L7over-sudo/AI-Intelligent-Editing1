@@ -11,20 +11,9 @@ export interface AutomaticVoiceCandidate {
 }
 
 export function shouldQueueAutomaticVoice(
-  candidate: AutomaticVoiceCandidate,
-): boolean {
-  return (
-    candidate.includeNarration &&
-    candidate.voiceStyle !== "none" &&
-    candidate.voiceProfileId !== null &&
-    !candidate.hasVoiceTrack
-  );
-}
-
-export function automaticVoiceIdempotencyKey(
-  sceneId: string,
-  sceneRevision: number,
-  sceneImageJobId: string,
-): string {
-  return `auto-voice:${sceneId}:${sceneRevision}:${sceneImageJobId}`;
+  _candidate: AutomaticVoiceCandidate,
+): false {
+  // Voice generation is an explicit user action. Image generation must never
+  // enqueue a narration job as a side effect.
+  return false;
 }

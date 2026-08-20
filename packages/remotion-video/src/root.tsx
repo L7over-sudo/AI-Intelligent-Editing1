@@ -10,7 +10,7 @@ import { calculateRemotionDurationInFrames } from "./timing";
 const defaultProps: RemotionRenderInput = {
   width: 1920,
   height: 1080,
-  fps: 60,
+  fps: 30,
   scenes: [
     {
       imageFile: "placeholder.png",
@@ -39,8 +39,8 @@ export const RemotionRoot = () => (
   <Composition
     id="StickMotionVideo"
     component={StickMotionVideo}
-    durationInFrames={60}
-    fps={60}
+    durationInFrames={30}
+    fps={30}
     width={1920}
     height={1080}
     defaultProps={defaultProps}
